@@ -17,6 +17,7 @@
 #include <boost/math/policies/error_handling.hpp>
 #include <algorithm>
 #include <cstdint>
+#include <iostream>
 
 #ifdef BOOST_MATH_INSTRUMENT
 #include <typeinfo>
@@ -472,6 +473,219 @@ inline typename tools::promote_args<T>::type
       result = detail::hypergeometric_pdf_lanczos_imp(value_type(), x, r, n, N, evaluation_type(), forwarding_policy());
    }
 
+   if(result > 1)
+   {
+      result = 1;
+   }
+   if(result < 0)
+   {
+      result = 0;
+   }
+
+   return policies::checked_narrowing_cast<result_type, forwarding_policy>(result, "boost::math::hypergeometric_pdf<%1%>(%1%,%1%,%1%,%1%)");
+}
+
+template <class Lanczos, class Policy>
+double hypergeometric_pdf_lanczos_imp_double(double x, double r, double n, double N, const Lanczos&, const Policy&)
+{
+   BOOST_MATH_STD_USING
+
+   BOOST_MATH_INSTRUMENT_FPU
+   BOOST_MATH_INSTRUMENT_VARIABLE(x);
+   BOOST_MATH_INSTRUMENT_VARIABLE(r);
+   BOOST_MATH_INSTRUMENT_VARIABLE(n);
+   BOOST_MATH_INSTRUMENT_VARIABLE(N);
+   BOOST_MATH_INSTRUMENT_VARIABLE(typeid(Lanczos).name());
+   typedef double T;
+   T bases[9] = {
+      T(n) + static_cast<T>(Lanczos::g()) + 0.5f,
+      T(r) + static_cast<T>(Lanczos::g()) + 0.5f,
+      T(N - n) + static_cast<T>(Lanczos::g()) + 0.5f,
+      T(N - r) + static_cast<T>(Lanczos::g()) + 0.5f,
+      1 / (T(N) + static_cast<T>(Lanczos::g()) + 0.5f),
+      1 / (T(x) + static_cast<T>(Lanczos::g()) + 0.5f),
+      1 / (T(n - x) + static_cast<T>(Lanczos::g()) + 0.5f),
+      1 / (T(r - x) + static_cast<T>(Lanczos::g()) + 0.5f),
+      1 / (T(N - n - r + x) + static_cast<T>(Lanczos::g()) + 0.5f)
+   };
+   T exponents[9] = {
+      n + T(0.5f),
+      r + T(0.5f),
+      N - n + T(0.5f),
+      N - r + T(0.5f),
+      N + T(0.5f),
+      x + T(0.5f),
+      n - x + T(0.5f),
+      r - x + T(0.5f),
+      N - n - r + x + T(0.5f)
+   };
+   int base_e_factors[9] = {
+      -1, -1, -1, -1, 1, 1, 1, 1, 1
+   };
+   int sorted_indexes[9] = {
+      0, 1, 2, 3, 4, 5, 6, 7, 8
+   };
+#ifdef BOOST_MATH_INSTRUMENT
+   BOOST_MATH_INSTRUMENT_FPU
+   for(unsigned i = 0; i < 9; ++i)
+   {
+      BOOST_MATH_INSTRUMENT_VARIABLE(i);
+      BOOST_MATH_INSTRUMENT_VARIABLE(bases[i]);
+      BOOST_MATH_INSTRUMENT_VARIABLE(exponents[i]);
+      BOOST_MATH_INSTRUMENT_VARIABLE(base_e_factors[i]);
+      BOOST_MATH_INSTRUMENT_VARIABLE(sorted_indexes[i]);
+   }
+#endif
+   std::sort(sorted_indexes, sorted_indexes + 9, sort_functor<T>(exponents));
+#ifdef BOOST_MATH_INSTRUMENT
+   BOOST_MATH_INSTRUMENT_FPU
+   for(unsigned i = 0; i < 9; ++i)
+   {
+      BOOST_MATH_INSTRUMENT_VARIABLE(i);
+      BOOST_MATH_INSTRUMENT_VARIABLE(bases[i]);
+      BOOST_MATH_INSTRUMENT_VARIABLE(exponents[i]);
+      BOOST_MATH_INSTRUMENT_VARIABLE(base_e_factors[i]);
+      BOOST_MATH_INSTRUMENT_VARIABLE(sorted_indexes[i]);
+   }
+#endif
+
+   do{
+      exponents[sorted_indexes[0]] -= exponents[sorted_indexes[1]];
+      bases[sorted_indexes[1]] *= bases[sorted_indexes[0]];
+      if((bases[sorted_indexes[1]] < tools::min_value<T>()) && (exponents[sorted_indexes[1]] != 0))
+      {
+         return 0;
+      }
+      base_e_factors[sorted_indexes[1]] += base_e_factors[sorted_indexes[0]];
+      bubble_down_one(sorted_indexes, sorted_indexes + 9, sort_functor<T>(exponents));
+
+#ifdef BOOST_MATH_INSTRUMENT
+      for(unsigned i = 0; i < 9; ++i)
+      {
+         BOOST_MATH_INSTRUMENT_VARIABLE(i);
+         BOOST_MATH_INSTRUMENT_VARIABLE(bases[i]);
+         BOOST_MATH_INSTRUMENT_VARIABLE(exponents[i]);
+         BOOST_MATH_INSTRUMENT_VARIABLE(base_e_factors[i]);
+         BOOST_MATH_INSTRUMENT_VARIABLE(sorted_indexes[i]);
+      }
+#endif
+   }while(exponents[sorted_indexes[1]] > 1);
+
+   //
+   // Combine equal powers:
+   //
+   std::size_t j = 8;
+   while(exponents[sorted_indexes[j]] == 0) --j;
+   while(j)
+   {
+      while(j && (exponents[sorted_indexes[j-1]] == exponents[sorted_indexes[j]]))
+      {
+         bases[sorted_indexes[j-1]] *= bases[sorted_indexes[j]];
+         exponents[sorted_indexes[j]] = 0;
+         base_e_factors[sorted_indexes[j-1]] += base_e_factors[sorted_indexes[j]];
+         bubble_down_one(sorted_indexes + j, sorted_indexes + 9, sort_functor<T>(exponents));
+         --j;
+      }
+      --j;
+
+#ifdef BOOST_MATH_INSTRUMENT
+      BOOST_MATH_INSTRUMENT_VARIABLE(j);
+      for(unsigned i = 0; i < 9; ++i)
+      {
+         BOOST_MATH_INSTRUMENT_VARIABLE(i);
+         BOOST_MATH_INSTRUMENT_VARIABLE(bases[i]);
+         BOOST_MATH_INSTRUMENT_VARIABLE(exponents[i]);
+         BOOST_MATH_INSTRUMENT_VARIABLE(base_e_factors[i]);
+         BOOST_MATH_INSTRUMENT_VARIABLE(sorted_indexes[i]);
+      }
+#endif
+   }
+
+#ifdef BOOST_MATH_INSTRUMENT
+   BOOST_MATH_INSTRUMENT_FPU
+   for(unsigned i = 0; i < 9; ++i)
+   {
+      BOOST_MATH_INSTRUMENT_VARIABLE(i);
+      BOOST_MATH_INSTRUMENT_VARIABLE(bases[i]);
+      BOOST_MATH_INSTRUMENT_VARIABLE(exponents[i]);
+      BOOST_MATH_INSTRUMENT_VARIABLE(base_e_factors[i]);
+      BOOST_MATH_INSTRUMENT_VARIABLE(sorted_indexes[i]);
+   }
+#endif
+
+   T result;
+   BOOST_MATH_INSTRUMENT_VARIABLE(bases[sorted_indexes[0]] * exp(static_cast<T>(base_e_factors[sorted_indexes[0]])));
+   BOOST_MATH_INSTRUMENT_VARIABLE(exponents[sorted_indexes[0]]);
+   {
+      BOOST_FPU_EXCEPTION_GUARD
+      result = pow(bases[sorted_indexes[0]] * exp(static_cast<T>(base_e_factors[sorted_indexes[0]])), exponents[sorted_indexes[0]]);
+   }
+   BOOST_MATH_INSTRUMENT_VARIABLE(result);
+   for(std::size_t i = 1; (i < 9) && (exponents[sorted_indexes[i]] > 0); ++i)
+   {
+      BOOST_FPU_EXCEPTION_GUARD
+      if(result < tools::min_value<T>())
+         return 0; // short circuit further evaluation
+      if(exponents[sorted_indexes[i]] == 1)
+         result *= bases[sorted_indexes[i]] * exp(static_cast<T>(base_e_factors[sorted_indexes[i]]));
+      else if(exponents[sorted_indexes[i]] == 0.5f)
+         result *= sqrt(bases[sorted_indexes[i]] * exp(static_cast<T>(base_e_factors[sorted_indexes[i]])));
+      else
+         result *= pow(bases[sorted_indexes[i]] * exp(static_cast<T>(base_e_factors[sorted_indexes[i]])), exponents[sorted_indexes[i]]);
+   
+      BOOST_MATH_INSTRUMENT_VARIABLE(result);
+   }
+
+   result *= Lanczos::lanczos_sum_expG_scaled(static_cast<T>(n + 1))
+      * Lanczos::lanczos_sum_expG_scaled(static_cast<T>(r + 1))
+      * Lanczos::lanczos_sum_expG_scaled(static_cast<T>(N - n + 1))
+      * Lanczos::lanczos_sum_expG_scaled(static_cast<T>(N - r + 1))
+      / 
+      ( Lanczos::lanczos_sum_expG_scaled(static_cast<T>(N + 1))
+         * Lanczos::lanczos_sum_expG_scaled(static_cast<T>(x + 1))
+         * Lanczos::lanczos_sum_expG_scaled(static_cast<T>(n - x + 1))
+         * Lanczos::lanczos_sum_expG_scaled(static_cast<T>(r - x + 1))
+         * Lanczos::lanczos_sum_expG_scaled(static_cast<T>(N - n - r + x + 1)));
+   
+   BOOST_MATH_INSTRUMENT_VARIABLE(result);
+   return result;
+}
+
+
+template <class T, class Policy>
+inline typename tools::promote_args<T>::type 
+   hypergeometric_pdf(double x, double r, double n, double N, const Policy&)
+{
+   BOOST_FPU_EXCEPTION_GUARD
+   typedef typename tools::promote_args<T>::type result_type;
+   typedef typename policies::evaluation<result_type, Policy>::type value_type;
+   typedef typename lanczos::lanczos<value_type, Policy>::type evaluation_type;
+   typedef typename policies::normalise<
+      Policy, 
+      policies::promote_float<false>, 
+      policies::promote_double<false>, 
+      policies::discrete_quantile<>,
+      policies::assert_undefined<> >::type forwarding_policy;
+
+   value_type result;
+   std::cout << boost::math::max_factorial<value_type>::value << std::endl;
+   if (N <= boost::math::max_factorial<value_type>::value){
+      std::cout << "Using lanczos" << std::endl;
+      result = hypergeometric_pdf_lanczos_imp_double(x, r, n, N, evaluation_type(), forwarding_policy());
+   }
+   else{
+      std::cout << "Not using Lanczos" << std::endl;
+      result = exp(
+         boost::math::lgamma(n + 1, forwarding_policy())
+         + boost::math::lgamma(r + 1, forwarding_policy())
+         + boost::math::lgamma(N - n + 1, forwarding_policy())
+         + boost::math::lgamma(N - r + 1, forwarding_policy())
+         - boost::math::lgamma(N + 1, forwarding_policy())
+         - boost::math::lgamma(x + 1, forwarding_policy())
+         - boost::math::lgamma(n - x + 1, forwarding_policy())
+         - boost::math::lgamma(r - x + 1, forwarding_policy())
+         - boost::math::lgamma(N - n - r + x + 1, forwarding_policy()));
+   }
    if(result > 1)
    {
       result = 1;
