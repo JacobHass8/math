@@ -23,7 +23,9 @@ std::pair<ReturnType, ReturnType> second_order_yoshida(const ReturnType p0,
                                                        const ReturnType q0, 
                                                        RealType dt, 
                                                        Func dHdp, 
-                                                       Func dHdq)
+                                                       Func dHdq,
+                                                       ReturnType& pError,
+                                                       ReturnType& qError)
 {
     ReturnType p = p0;
     ReturnType q = q0;
@@ -31,19 +33,31 @@ std::pair<ReturnType, ReturnType> second_order_yoshida(const ReturnType p0,
     // Half step in q
     auto dHdp_val = dHdp(p);
     for (unsigned i=0; i < q.size(); i++){
-        q[i] = q[i] + dt / 2 * dHdp_val[i];
+        auto dq = dt / 2 * dHdp_val[i];
+        auto y = dq - qError[i];
+        auto t = q[i] + y;
+        qError[i] = (t - q[i]) - y;
+        q[i] = t;
     }
 
     // Full step in p
     auto dHdq_val = dHdq(q);
     for (unsigned i=0; i < p.size(); i++){
-        p[i] = p[i] - dt * dHdq_val[i];
+        auto dp = - dt * dHdq_val[i];
+        auto y = dp - pError[i];
+        auto t = p[i] + y;
+        pError[i] = (t - p[i]) - y;
+        p[i] = t;
     }
 
     // Half step in q
     dHdp_val = dHdp(p);
     for (unsigned i=0; i < q.size(); i++){
-        q[i] = q[i] + dt / 2 * dHdp_val[i];
+        auto dq = dt / 2 * dHdp_val[i];
+        auto y = dq - qError[i];
+        auto t = q[i] + y;
+        qError[i] = (t - q[i]) - y;
+        q[i] = t;
     }
 
     return std::make_pair(p, q);
@@ -54,7 +68,9 @@ std::pair<ReturnType, ReturnType> fourth_order_yoshida(const ReturnType p0,
                                                        const ReturnType q0, 
                                                        const RealType dt, 
                                                        Func dHdp, 
-                                                       Func dHdq)
+                                                       Func dHdq,
+                                                       ReturnType& pError,
+                                                       ReturnType& qError)
 {
     BOOST_MATH_STD_USING
     
@@ -69,7 +85,7 @@ std::pair<ReturnType, ReturnType> fourth_order_yoshida(const ReturnType p0,
 
     for (unsigned i=0; i < weights.size(); i++)
     {
-        std::tie(p, q) = second_order_yoshida(p, q, weights[i] * dt, dHdp, dHdq);
+        std::tie(p, q) = second_order_yoshida(p, q, weights[i] * dt, dHdp, dHdq, pError, qError);
     }
     
     return std::make_pair(p, q);
@@ -80,7 +96,9 @@ std::pair<ReturnType, ReturnType> sixth_order_yoshida(const ReturnType p0,
                                                       const ReturnType q0, 
                                                       RealType dt, 
                                                       Func dHdp, 
-                                                      Func dHdq)
+                                                      Func dHdq,
+                                                      ReturnType& pError,
+                                                      ReturnType& qError)
 {
     ReturnType p = p0;
     ReturnType q = q0;
@@ -100,7 +118,7 @@ std::pair<ReturnType, ReturnType> sixth_order_yoshida(const ReturnType p0,
 
     for (unsigned i=0; i < weights.size(); i++)
     {
-        std::tie(p, q) = second_order_yoshida(p, q, weights[i] * dt, dHdp, dHdq);
+        std::tie(p, q) = second_order_yoshida(p, q, weights[i] * dt, dHdp, dHdq, pError, qError);
     }
     
     return std::make_pair(p, q);
@@ -111,7 +129,9 @@ std::pair<ReturnType, ReturnType> SRKN_b_order_6(const ReturnType p0,
                                                  const ReturnType q0,
                                                  RealType dt, 
                                                  Func dHdp,
-                                                 Func dHdq)
+                                                 Func dHdq,
+                                                 ReturnType& pError,
+                                                 ReturnType& qError)
 { // This method implements SRKN_b^6 in Table 3 here 
   // https://www.sciencedirect.com/science/article/pii/S0377042701004927
 
@@ -177,7 +197,7 @@ std::pair<std::vector<ReturnType>, std::vector<ReturnType> > integrate_hamiltoni
     // Check if method is available
     std::vector<std::string> available_methods = {"Y6", "Y4", "Y2"};
 
-    typedef std::pair<ReturnType, ReturnType> (*stepperType)(ReturnType, ReturnType, RealType, Func, Func);
+    typedef std::pair<ReturnType, ReturnType> (*stepperType)(ReturnType, ReturnType, RealType, Func, Func, ReturnType&, ReturnType&);
 
     std::map<std::string, stepperType> m{{"Y6", sixth_order_yoshida}, 
                                          {"Y4", fourth_order_yoshida}, 
@@ -192,12 +212,17 @@ std::pair<std::vector<ReturnType>, std::vector<ReturnType> > integrate_hamiltoni
 
     ReturnType p_current = p0;
     ReturnType q_current = q0;
+    
+    ReturnType pError(p0.size(), 0);
+    ReturnType qError(q0.size(), 0);
+
     for (unsigned i=1; i < steps; i++)
     {
-        std::tie(p_current, q_current) = stepper(p_current, q_current, dt, dHdp, dHdq);
+        std::tie(p_current, q_current) = stepper(p_current, q_current, dt, dHdp, dHdq, pError, qError);
         p[i] = p_current;
         q[i] = q_current;
     }
+
     return std::make_pair(p, q);
 }
 } // namespace detail
