@@ -154,12 +154,9 @@ std::vector<Real> cartesian_product_weights(const std::vector<Real>& a, const st
 }
 
 template <typename Real>
-std::pair<std::vector<std::vector<Real>>, std::vector<Real>> smolyak_nd(std::size_t dimensions, unsigned level)
+std::unordered_map<std::vector<Real>, Real, VectorHasher<Real>> smolyak_nd(std::size_t dimensions, unsigned level)
 {
-    std::vector<std::vector<Real>> total_points;
-    total_points.reserve(dimensions);
     std::unordered_map<std::vector<Real>, Real, VectorHasher<Real>> point_weight_map;
-    std::vector<Real> total_weights;
 
     std::vector<int> slots(dimensions, 1);
     unsigned int current_sum = dimensions;
@@ -184,7 +181,7 @@ std::pair<std::vector<std::vector<Real>>, std::vector<Real>> smolyak_nd(std::siz
     }
     // Finished precomputing abscissas and weights for each level
 
-    // Now compute the Smolyak grid points and weights
+    // Compute the Smolyak grid points and weights
     while (true)
     {
         std::vector<Real> abscissa_0 = diffAbscissa[slots[0]-1];
@@ -203,9 +200,6 @@ std::pair<std::vector<std::vector<Real>>, std::vector<Real>> smolyak_nd(std::siz
             points_by_index = cartesian_product(points_by_index, abscissa_j);
             weights_by_index = cartesian_product_weights(weights_by_index, weights_j);
         }
-
-        // total_points.insert(total_points.end(), points_by_index.begin(), points_by_index.end());
-        // total_weights.insert(total_weights.end(), weights_by_index.begin(), weights_by_index.end());
 
         for (size_t i = 0; i < points_by_index.size(); ++i)
         {
@@ -229,7 +223,7 @@ std::pair<std::vector<std::vector<Real>>, std::vector<Real>> smolyak_nd(std::siz
             // Overflow, we're done
             if (index == dimensions - 1)
             {
-                return std::make_pair(total_points, total_weights);
+                return point_weight_map;
             }
 
             current_sum -= slots[index] - 1;
@@ -244,7 +238,21 @@ std::pair<std::vector<std::vector<Real>>, std::vector<Real>> smolyak_nd(std::siz
         index = 0;
     }
 
-    return std::make_pair(total_points, total_weights);
+    return point_weight_map;
+}
+
+template <typename Real>
+Real integrate_function(const std::function<Real(const std::vector<Real>&)>& func, unsigned level, size_t dimensions)
+{
+    auto point_weight_map = smolyak_nd<Real>(dimensions, level);
+
+    Real integral = 0.0;
+    for (const auto& [point, weight] : point_weight_map)
+    {
+        integral += func(point) * weight;
+    }
+
+    return integral;
 }
 
 int main()
@@ -254,16 +262,22 @@ int main()
     using std::chrono::duration;
     using std::chrono::milliseconds;
 
+    std::function<double(const std::vector<double>&)> func = [](const std::vector<double>& x) -> double {
+        return x[0] * x[0] * x[0] + x[1] * x[0]; // Example function: f(x, y) = x^2 + y^2
+    };
+
     std::size_t dimensions = 2;
-    unsigned level = 3;
+    unsigned level = 30;
 
-    auto t1 = high_resolution_clock::now();
-    const auto [points, weights] = smolyak_nd<double>(dimensions, level);
-    auto t2 = high_resolution_clock::now();
-    duration<double, std::milli> ms_double = t2 - t1;
-    std::cout << ms_double.count() << "ms\n";    
+    // auto t1 = high_resolution_clock::now();
+    double value = integrate_function(func, level, dimensions);
+    std::cout << std::setprecision(16) << value << std::endl;
+    // auto point_weight_map = smolyak_nd<double>(dimensions, level);
+    // auto t2 = high_resolution_clock::now();
+    // duration<double, std::milli> ms_double = t2 - t1;
+    // std::cout << ms_double.count() << "ms\n";    
 
-    std::cout << "Points:" << points.size() << std::endl;
+    // std::cout << "Points:" << point_weight_map.size() << std::endl;
     // for (const auto& point : points)
     // {
     //     for (const auto& coordinate : point)
