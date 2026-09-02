@@ -1,8 +1,62 @@
 #include <vector>
 #include <iostream>
 #include <chrono>
+#include <numeric>
 #include <map>
+#include <functional>
 #include <boost/math/quadrature/gauss.hpp>
+#include <boost/math/special_functions/binomial.hpp>
+
+template <class Real>
+class trap_points
+{
+   unsigned q;
+   std::vector<Real> weight_vals;
+   std::vector<Real> abscissa_vals;
+
+public:
+    std::vector<Real> abscissa()
+    {
+        return abscissa_vals;
+    }
+    std::vector<Real> weights()
+    {
+        return weight_vals;
+    }
+
+    trap_points(unsigned q_) : q(q_)
+    {
+        if (q == 0 || q == 1)
+        {
+            throw std::invalid_argument("Number of points must be greater than or equal to 2");
+        }
+        for (unsigned l=1; l < q; l++)
+        {
+            if (l == 1){
+                abscissa_vals.push_back(0.0);
+                weight_vals.push_back(2.0);
+                continue;
+            }
+            unsigned nl;
+
+            nl = pow(2, l-1) + 1;
+
+            for (unsigned j=1; j <= nl; j++)
+            {
+                Real h = pow(2.0, 2.0 - Real(l));
+                weight_vals.push_back(h);
+                abscissa_vals.push_back((Real(j) - 1.0) * h - 1.0);
+                if (j == 1 || j == nl)
+                {
+                    weight_vals.back() /= 2.0;
+                }
+            }
+        }
+        Real total_weight = std::accumulate(weight_vals.begin(), weight_vals.end(), 0.0);
+        std::transform(weight_vals.begin(), weight_vals.end(), weight_vals.begin(), [total_weight](Real w) { return 2 * w / total_weight; });
+    };
+
+};
 
 // Custom hasher functor for std::vector
 template <class Real>
@@ -17,10 +71,9 @@ struct VectorHasher {
     }
 };
 
-
 template <class Real>
 class gauss_points
-{   
+{
    std::vector<Real> calculate_weights()
    {
       std::vector<Real> result(abscissa().size(), 0);
@@ -49,20 +102,20 @@ public:
 
 };
 
-template <typename Real>
+template <typename Real, class Quad>
 std::pair<std::vector<Real>, std::vector<Real> > getDiff(unsigned level)
 {
     if( level < 1)
     {
         throw std::invalid_argument("Level must be greater than or equal to 1");
     }
-    
-    gauss_points<Real> currentLevel(level);
+
+    Quad currentLevel(level);
     if (level == 1 ){
         return std::make_pair(currentLevel.abscissa(), currentLevel.weights());
     }
 
-    gauss_points<Real> previousLevel(level - 1);
+    Quad previousLevel(level - 1);
     std::vector<Real> currentAbscissa = currentLevel.abscissa();
     std::vector<Real> previousAbscissa = previousLevel.abscissa();
 
@@ -76,14 +129,14 @@ std::pair<std::vector<Real>, std::vector<Real> > getDiff(unsigned level)
     return std::make_pair(currentAbscissa, currentWeights);
 }
 
-template <typename Real>
-std::pair<std::vector<Real>, std::vector<Real> > getDiff(unsigned level, gauss_points<Real> currentLevel, gauss_points<Real> previousLevel)
+template <typename Real, class Quad>
+std::pair<std::vector<Real>, std::vector<Real> > getDiff(unsigned level, Quad currentLevel, Quad previousLevel)
 {
     if( level < 1)
     {
         throw std::invalid_argument("Level must be greater than or equal to 1");
     }
-    
+
     if (level == 1 ){
         return std::make_pair(currentLevel.abscissa(), currentLevel.weights());
     }
@@ -153,29 +206,31 @@ std::vector<Real> cartesian_product_weights(const std::vector<Real>& a, const st
     return result;
 }
 
-template <typename Real>
-std::unordered_map<std::vector<Real>, Real, VectorHasher<Real>> smolyak_nd(std::size_t dimensions, unsigned level)
+template <typename Real, class Quad, typename GrowthMap>
+std::map<std::vector<Real>, Real> smolyak_nd(std::size_t dimensions, unsigned level, GrowthMap growth_map)
 {
-    std::unordered_map<std::vector<Real>, Real, VectorHasher<Real>> point_weight_map;
+    std::map<std::vector<Real>, Real> point_weight_map;
 
     std::vector<int> slots(dimensions, 1);
+    const unsigned int max_sum = level + dimensions - 1;
     unsigned int current_sum = dimensions;
     int index = 0;
-    
+
     // Precompute the abscissas and weights for each level to avoid redundant calculations
-    std::vector<gauss_points<Real>> gauss_points_per_level;
+    std::vector<Quad> gauss_points_per_level;
     std::vector<std::vector<Real> > diffAbscissa;
     std::vector<std::vector<Real> > diffWeights;
 
-    for (size_t i = 0; i < level+1; ++i)
+    for (size_t i = 0; i < level + 1; ++i)
     {
-        gauss_points<Real> currentLevel(i);
+        unsigned num_points = growth_map(i); // Map level i to N points
+        Quad currentLevel(num_points);
         gauss_points_per_level.push_back(currentLevel);
     }
 
     for (size_t i = 1; i < level+1; ++i)
     {
-        const auto [abscissa, weights] = getDiff(i, gauss_points_per_level[i], gauss_points_per_level[i - 1]);
+        const auto [abscissa, weights] = getDiff<Real, Quad>(i, gauss_points_per_level[i], gauss_points_per_level[i - 1]);
         diffAbscissa.push_back(abscissa);
         diffWeights.push_back(weights);
     }
@@ -218,7 +273,7 @@ std::unordered_map<std::vector<Real>, Real, VectorHasher<Real>> smolyak_nd(std::
         current_sum++;
 
         // Carry
-        while (current_sum > level+1)
+        while (current_sum > max_sum)
         {
             // Overflow, we're done
             if (index == dimensions - 1)
@@ -230,7 +285,7 @@ std::unordered_map<std::vector<Real>, Real, VectorHasher<Real>> smolyak_nd(std::
             slots[index] = 1;
 
             index++;
-            
+
             slots[index]++;
             current_sum++;
         }
@@ -241,11 +296,169 @@ std::unordered_map<std::vector<Real>, Real, VectorHasher<Real>> smolyak_nd(std::
     return point_weight_map;
 }
 
+std::vector<std::vector<unsigned> > getIndices(size_t dimensions, unsigned level)
+{
+    std::vector<std::vector<unsigned> > indices;
+    std::vector<unsigned> slots(dimensions, 1);
+    unsigned int current_sum = dimensions;
+    const unsigned int max_sum = level;
+    const unsigned min_sum = level - dimensions + 1;
+    unsigned index = 0;
+
+    while (true)
+    {
+        if ((current_sum >= min_sum) && (current_sum <= max_sum) && (current_sum >= dimensions))
+        {
+            indices.push_back(slots);
+        }
+
+        // Now increment slots to handle indexing for the next iteration
+        slots[0]++;
+        current_sum++;
+
+        // Carry
+        while (current_sum > max_sum)
+        {
+            // Overflow, we're done
+            if (index == dimensions - 1)
+            {
+                return indices;
+            }
+
+            current_sum -= slots[index] - 1;
+            slots[index] = 1;
+
+            index++;
+
+            slots[index]++;
+            current_sum++;
+        }
+
+        index = 0;
+    }
+    return indices;
+}
+
+template <typename Real>
+Real combination_coefficient(size_t dimensions, unsigned level, const std::vector<unsigned>& index)
+{
+    unsigned sum = 0;
+    for (unsigned v : index)
+    {
+        sum += v;
+    }
+
+    unsigned k = level - sum;
+    if (k > dimensions - 1)
+    {
+        return 0;
+    }
+
+    Real sign = (k % 2 == 0) ? static_cast<Real>(1) : static_cast<Real>(-1);
+    Real coeff = static_cast<Real>(boost::math::binomial_coefficient<Real>(dimensions - 1, k));
+    return sign * coeff;
+}
+
+template <typename Real, class Quad, typename GrowthMap>
+std::map<std::vector<Real>, Real> combination_grid(size_t dimensions, unsigned level, GrowthMap growth_map)
+{
+    std::vector<std::vector<unsigned> > indices = getIndices(dimensions, level);
+    std::map<std::vector<Real>, Real> point_weight_map;
+
+    // Precompute the abscissas and weights for each level to avoid redundant calculations
+    std::vector<Quad> points_per_level;
+
+    for (size_t i = 0; i < level + 1; ++i)
+    {
+        unsigned num_points = growth_map(i); // Map level i to N points
+        Quad currentLevel(num_points);
+        points_per_level.push_back(currentLevel);
+    }
+
+    for (size_t i=0; i < indices.size(); ++i)
+    {
+        std::vector<unsigned> current_indices = indices[i];
+        Real coeff = combination_coefficient<Real>(dimensions, level, current_indices);
+
+        // Calculate the first level's abscissas and weights to initialize the cartesian product
+        std::vector<Real> abscissa_0 = points_per_level[current_indices[0]].abscissa();
+        std::vector<Real> weights_0 = points_per_level[current_indices[0]].weights();
+
+        std::vector<Real> abscissa_1 = points_per_level[current_indices[1]].abscissa();
+        std::vector<Real> weights_1 = points_per_level[current_indices[1]].weights();
+
+        std::vector<std::vector<Real> > abscissas = cartesian_product(abscissa_0, abscissa_1);
+        std::vector<Real> weights = cartesian_product_weights(weights_0, weights_1);
+
+        for (size_t j=2; j < current_indices.size(); j++)
+        {
+            std::vector<Real> abscissa_j = points_per_level[current_indices[j]].abscissa();
+            std::vector<Real> weights_j = points_per_level[current_indices[j]].weights();
+
+            abscissas = cartesian_product(abscissas, abscissa_j);
+            weights = cartesian_product_weights(weights, weights_j);
+        }
+
+        for (size_t j = 0; j < weights.size(); ++j)
+        {
+            weights[j] *= coeff;
+        }
+
+        for (size_t j = 0; j < abscissas.size(); ++j)
+        {
+            std::vector<Real>& point = abscissas[j];
+            Real& weight = weights[j];
+
+            auto [iterator, success] = point_weight_map.insert({point, weight});
+            if (!success)
+            {
+                iterator->second += weight;
+            }
+        }
+    }
+    return point_weight_map;
+}
+
+void print_indices(size_t dimensions, unsigned level)
+{
+    std::vector<std::vector<unsigned>> indices = getIndices(dimensions, level);
+    std::cout << "Indices for dimensions = " << dimensions << ", level = " << level << ":\n";
+    for (const auto& index : indices)
+    {
+        for (const auto& val : index)
+        {
+            std::cout << val << " ";
+        }
+        std::cout << "\n";
+    }
+}
+
+void get_and_print_map(size_t dimensions, unsigned level)
+{
+    std::map<std::vector<double>, double> result = combination_grid<double, trap_points<double>, std::function<unsigned(unsigned)>>(
+        dimensions, level, [](unsigned l) { return l + 2; });
+
+    std::cout << "Combination grid points and weights:\n";
+    for (const auto& [point, weight] : result)
+    {
+        for (size_t i = 0; i < point.size(); ++i)
+        {
+            std::cout << point[i];
+            if (i < point.size() - 1)
+                std::cout << " ";
+        }
+        std::cout << " " << weight << "\n";
+    }
+}
+
 template <typename Real>
 Real integrate_function(const std::function<Real(const std::vector<Real>&)>& func, unsigned level, size_t dimensions)
 {
-    auto point_weight_map = smolyak_nd<Real>(dimensions, level);
+    auto growth_map = [](unsigned l) { return l + 2; }; // Example growth map
 
+    auto point_weight_map = combination_grid<Real, trap_points<Real>, std::function<unsigned(unsigned)>>(
+        dimensions, level, growth_map);
+    std::cout << "Number of unique points: " << point_weight_map.size() << std::endl;
     Real integral = 0.0;
     for (const auto& [point, weight] : point_weight_map)
     {
@@ -257,35 +470,13 @@ Real integrate_function(const std::function<Real(const std::vector<Real>&)>& fun
 
 int main()
 {
-    using std::chrono::high_resolution_clock;
-    using std::chrono::duration_cast;
-    using std::chrono::duration;
-    using std::chrono::milliseconds;
-
-    std::function<double(const std::vector<double>&)> func = [](const std::vector<double>& x) -> double {
-        return x[0] * x[0] * x[0] + x[1] * x[0]; // Example function: f(x, y) = x^2 + y^2
-    };
-
     std::size_t dimensions = 2;
-    unsigned level = 30;
+    unsigned level = 12;
 
-    // auto t1 = high_resolution_clock::now();
-    double value = integrate_function(func, level, dimensions);
-    std::cout << std::setprecision(16) << value << std::endl;
-    // auto point_weight_map = smolyak_nd<double>(dimensions, level);
-    // auto t2 = high_resolution_clock::now();
-    // duration<double, std::milli> ms_double = t2 - t1;
-    // std::cout << ms_double.count() << "ms\n";    
-
-    // std::cout << "Points:" << point_weight_map.size() << std::endl;
-    // for (const auto& point : points)
-    // {
-    //     for (const auto& coordinate : point)
-    //     {
-    //         std::cout << coordinate << " ";
-    //     }
-    //     std::cout << weights[&point - &points[0]] << std::endl;
-    // }
+    double integral = integrate_function<double>([](const std::vector<double>& x) {
+        return x[0] * x[0] * x[1] * x[1]; // Example function to integrate
+    }, level, dimensions);
+    std::cout << integral << std::endl;
 
     return 0;
 }
