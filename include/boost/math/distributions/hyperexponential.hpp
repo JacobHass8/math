@@ -42,7 +42,9 @@
 # pragma warning(disable:4389) // '==' : signed/unsigned mismatch in test_tools
 #endif // _MSC_VER
 
-namespace boost { namespace math {
+#include <boost/math/quadrature/exp_sinh.hpp>
+
+BOOST_MATH_NAMESPACE_BEGIN
 
 namespace detail {
 
@@ -86,7 +88,7 @@ bool check_probabilities(char const* function, std::vector<RealT> const& probabi
     {
         if (probabilities[i] < 0
             || probabilities[i] > 1
-            || !(boost::math::isfinite)(probabilities[i]))
+            || !(BOOST_MATH_NAMESPACE::isfinite)(probabilities[i]))
         {
             *presult = policies::raise_domain_error<RealT>(function,
                                                            "The elements of parameter \"probabilities\" must be >= 0 and <= 1, but at least one of them was: %1%.",
@@ -120,7 +122,7 @@ bool check_rates(char const* function, std::vector<RealT> const& rates, RealT* p
     for (std::size_t i = 0; i < n; ++i)
     {
         if (rates[i] <= 0
-            || !(boost::math::isfinite)(rates[i]))
+            || !(BOOST_MATH_NAMESPACE::isfinite)(rates[i]))
         {
             *presult = policies::raise_domain_error<RealT>(function,
                                                            "The elements of parameter \"rates\" must be > 0, but at least one of them is: %1%.",
@@ -152,7 +154,7 @@ bool check_dist(char const* function, std::vector<RealT> const& probabilities, s
 template <typename RealT, typename PolicyT>
 bool check_x(char const* function, RealT x, RealT* presult, PolicyT const& pol)
 {
-    if (x < 0 || (boost::math::isnan)(x))
+    if (x < 0 || (BOOST_MATH_NAMESPACE::isnan)(x))
     {
         *presult = policies::raise_domain_error<RealT>(function, "The random variable must be >= 0, but is: %1%.", x, pol);
         return false;
@@ -163,7 +165,7 @@ bool check_x(char const* function, RealT x, RealT* presult, PolicyT const& pol)
 template <typename RealT, typename PolicyT>
 bool check_probability(char const* function, RealT p, RealT* presult, PolicyT const& pol)
 {
-    if (p < 0 || p > 1 || (boost::math::isnan)(p))
+    if (p < 0 || p > 1 || (BOOST_MATH_NAMESPACE::isnan)(p))
     {
         *presult = policies::raise_domain_error<RealT>(function, "The probability be >= 0 and <= 1, but is: %1%.", p, pol);
         return false;
@@ -281,7 +283,7 @@ class hyperexponential_distribution
              };
 
              template <typename T>
-             struct is_iterator<T, boost::math::tools::void_t<typename std::iterator_traits<T>::difference_type>>
+             struct is_iterator<T, BOOST_MATH_NAMESPACE::tools::void_t<typename std::iterator_traits<T>::difference_type>>
              {
                  // std::iterator_traits<T>::difference_type returns void for invalid types
                  static constexpr bool value = !std::is_same<typename std::iterator_traits<T>::difference_type, void>::value;
@@ -546,7 +548,7 @@ RealT variance(hyperexponential_distribution<RealT, PolicyT> const& dist)
         result += probs[i]/(rates[i]*rates[i]);
     }
 
-    const RealT mean = boost::math::mean(dist);
+    const RealT mean = BOOST_MATH_NAMESPACE::mean(dist);
 
     result = 2*result-mean*mean;
 
@@ -629,7 +631,38 @@ RealT mode(hyperexponential_distribution<RealT,PolicyT> const& /*dist*/)
     return 0;
 }
 
-}} // namespace boost::math
+// Not GPU enabled: uses quadrature.
+BOOST_MATH_EXPORT template <class RealT, class PolicyT>
+inline RealT entropy(const hyperexponential_distribution<RealT, PolicyT>& dist)
+{
+   BOOST_MATH_STD_USING
+   // -int_0^inf f log(f) for the mixture f(x) = sum p_i lambda_i exp(-lambda_i x), which has no closed
+   // form. The integral is taken for U = c X, c = 1/E[X], so that the integrand's scale is ~1:
+   // H(X) = H(U) - log(c).
+   const std::vector<RealT> probs = dist.probabilities();
+   const std::vector<RealT> rates = dist.rates();
+   RealT c = 1 / mean(dist);
+   RealT min_rate = rates[0] / c;
+   for (std::size_t i = 1; i < rates.size(); ++i)
+      min_rate = (std::min)(min_rate, RealT(rates[i] / c));
+   auto integrand = [&](RealT u) -> RealT
+   {
+      // f(u) = exp(-min_rate u) g(u), g(u) = sum p_i lambda_i exp(-(lambda_i - min_rate) u):
+      RealT g = 0;
+      for (std::size_t i = 0; i < rates.size(); ++i)
+      {
+         RealT l = rates[i] / c;
+         g += probs[i] * l * exp(-(l - min_rate) * u);
+      }
+      RealT log_f = log(g) - min_rate * u;
+      RealT f = exp(log_f);
+      return f == 0 ? RealT(0) : RealT(-f * log_f);
+   };
+   quadrature::exp_sinh<RealT, PolicyT> integrator;
+   return integrator.integrate(integrand, policies::get_epsilon<RealT, PolicyT>() * 8) - log(c);
+}
+
+BOOST_MATH_NAMESPACE_END
 
 #ifdef _MSC_VER
 #pragma warning (pop)

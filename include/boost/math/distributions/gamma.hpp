@@ -19,9 +19,11 @@
 #include <boost/math/special_functions/digamma.hpp>
 #include <boost/math/distributions/detail/common_error_handling.hpp>
 #include <boost/math/distributions/complement.hpp>
+#ifndef BOOST_MATH_HAS_GPU_SUPPORT
+#include <boost/math/distributions/detail/entropy.hpp>
+#endif
 
-namespace boost{ namespace math
-{
+BOOST_MATH_NAMESPACE_BEGIN
 namespace detail
 {
 
@@ -31,7 +33,7 @@ BOOST_MATH_GPU_ENABLED inline bool check_gamma_shape(
       RealType shape,
       RealType* result, const Policy& pol)
 {
-   if((shape <= 0) || !(boost::math::isfinite)(shape))
+   if((shape <= 0) || !(BOOST_MATH_NAMESPACE::isfinite)(shape))
    {
       *result = policies::raise_domain_error<RealType>(
          function,
@@ -47,7 +49,7 @@ BOOST_MATH_GPU_ENABLED inline bool check_gamma_x(
       RealType const& x,
       RealType* result, const Policy& pol)
 {
-   if((x < 0) || !(boost::math::isfinite)(x))
+   if((x < 0) || !(BOOST_MATH_NAMESPACE::isfinite)(x))
    {
       *result = policies::raise_domain_error<RealType>(
          function,
@@ -104,25 +106,25 @@ private:
 
 #ifdef __cpp_deduction_guides
 BOOST_MATH_EXPORT template <class RealType>
-gamma_distribution(RealType)->gamma_distribution<typename boost::math::tools::promote_args<RealType>::type>;
+gamma_distribution(RealType)->gamma_distribution<typename BOOST_MATH_NAMESPACE::tools::promote_args<RealType>::type>;
 BOOST_MATH_EXPORT template <class RealType>
-gamma_distribution(RealType,RealType)->gamma_distribution<typename boost::math::tools::promote_args<RealType>::type>;
+gamma_distribution(RealType,RealType)->gamma_distribution<typename BOOST_MATH_NAMESPACE::tools::promote_args<RealType>::type>;
 #endif
 
 BOOST_MATH_EXPORT template <class RealType, class Policy>
-BOOST_MATH_GPU_ENABLED inline boost::math::pair<RealType, RealType> range(const gamma_distribution<RealType, Policy>& /* dist */)
+BOOST_MATH_GPU_ENABLED inline BOOST_MATH_NAMESPACE::pair<RealType, RealType> range(const gamma_distribution<RealType, Policy>& /* dist */)
 { // Range of permissible values for random variable x.
-   using boost::math::tools::max_value;
-   return boost::math::pair<RealType, RealType>(static_cast<RealType>(0), max_value<RealType>());
+   using BOOST_MATH_NAMESPACE::tools::max_value;
+   return BOOST_MATH_NAMESPACE::pair<RealType, RealType>(static_cast<RealType>(0), max_value<RealType>());
 }
 
 BOOST_MATH_EXPORT template <class RealType, class Policy>
-BOOST_MATH_GPU_ENABLED inline boost::math::pair<RealType, RealType> support(const gamma_distribution<RealType, Policy>& /* dist */)
+BOOST_MATH_GPU_ENABLED inline BOOST_MATH_NAMESPACE::pair<RealType, RealType> support(const gamma_distribution<RealType, Policy>& /* dist */)
 { // Range of supported values for random variable x.
    // This is range where cdf rises from 0 to 1, and outside it, the pdf is zero.
-   using boost::math::tools::max_value;
-   using boost::math::tools::min_value;
-   return boost::math::pair<RealType, RealType>(min_value<RealType>(),  max_value<RealType>());
+   using BOOST_MATH_NAMESPACE::tools::max_value;
+   using BOOST_MATH_NAMESPACE::tools::min_value;
+   return BOOST_MATH_NAMESPACE::pair<RealType, RealType>(min_value<RealType>(),  max_value<RealType>());
 }
 
 BOOST_MATH_EXPORT template <class RealType, class Policy>
@@ -153,14 +155,14 @@ BOOST_MATH_EXPORT template <class RealType, class Policy>
 BOOST_MATH_GPU_ENABLED inline RealType logpdf(const gamma_distribution<RealType, Policy>& dist, const RealType& x)
 {
    BOOST_MATH_STD_USING  // for ADL of std functions
-   using boost::math::lgamma;
+   using BOOST_MATH_NAMESPACE::lgamma;
 
    constexpr auto function = "boost::math::logpdf(const gamma_distribution<%1%>&, %1%)";
 
    RealType k = dist.shape();
    RealType theta = dist.scale();
 
-   RealType result = -boost::math::numeric_limits<RealType>::infinity();
+   RealType result = -BOOST_MATH_NAMESPACE::numeric_limits<RealType>::infinity();
    if(false == detail::check_gamma(function, theta, k, &result, Policy()))
       return result;
    if(false == detail::check_gamma_x(function, x, &result, Policy()))
@@ -168,7 +170,7 @@ BOOST_MATH_GPU_ENABLED inline RealType logpdf(const gamma_distribution<RealType,
 
    if(x == 0)
    {
-      return boost::math::numeric_limits<RealType>::quiet_NaN();
+      return BOOST_MATH_NAMESPACE::numeric_limits<RealType>::quiet_NaN();
    }
 
    result = -k*log(theta) + (k-1)*log(x) - lgamma(k) - (x/theta);
@@ -192,7 +194,7 @@ BOOST_MATH_GPU_ENABLED inline RealType cdf(const gamma_distribution<RealType, Po
    if(false == detail::check_gamma_x(function, x, &result, Policy()))
       return result;
 
-   result = boost::math::gamma_p(shape, x / scale, Policy());
+   result = BOOST_MATH_NAMESPACE::gamma_p(shape, x / scale, Policy());
    return result;
 } // cdf
 
@@ -239,6 +241,34 @@ BOOST_MATH_GPU_ENABLED inline RealType cdf(const complemented2_type<gamma_distri
    result = gamma_q(shape, c.param / scale, Policy());
 
    return result;
+}
+
+BOOST_MATH_EXPORT template <class RealType, class Policy>
+BOOST_MATH_GPU_ENABLED inline RealType logcdf(const gamma_distribution<RealType, Policy>& dist, const RealType& x)
+{
+   constexpr auto function = "boost::math::logcdf(const gamma_distribution<%1%>&, %1%)";
+   RealType shape = dist.shape();
+   RealType scale = dist.scale();
+   RealType result = 0;
+   if(false == detail::check_gamma(function, scale, shape, &result, Policy()))
+      return result;
+   if(false == detail::check_gamma_x(function, x, &result, Policy()))
+      return result;
+   return BOOST_MATH_NAMESPACE::lgamma_p(shape, x / scale, Policy());
+}
+
+BOOST_MATH_EXPORT template <class RealType, class Policy>
+BOOST_MATH_GPU_ENABLED inline RealType logcdf(const complemented2_type<gamma_distribution<RealType, Policy>, RealType>& c)
+{
+   constexpr auto function = "boost::math::logcdf(const gamma_distribution<%1%>&, %1%)";
+   RealType shape = c.dist.shape();
+   RealType scale = c.dist.scale();
+   RealType result = 0;
+   if(false == detail::check_gamma(function, scale, shape, &result, Policy()))
+      return result;
+   if(false == detail::check_gamma_x(function, c.param, &result, Policy()))
+      return result;
+   return BOOST_MATH_NAMESPACE::lgamma_q(shape, c.param / scale, Policy());
 }
 
 BOOST_MATH_EXPORT template <class RealType, class Policy>
@@ -373,6 +403,15 @@ BOOST_MATH_GPU_ENABLED inline RealType kurtosis(const gamma_distribution<RealTyp
    return kurtosis_excess(dist) + 3;
 }
 
+#ifndef BOOST_MATH_HAS_GPU_SUPPORT
+BOOST_MATH_EXPORT template <class RealType, class Policy>
+inline RealType entropy(const gamma_distribution<RealType, Policy>& dist)
+{
+   BOOST_MATH_STD_USING
+   // k + log(theta) + lgamma(k) + (1 - k) digamma(k), whose terms cancel to ~log(k)/2 for large k:
+   return log(dist.scale()) + detail::gamma_entropy_unit_scale(dist.shape(), Policy());
+}
+#else
 BOOST_MATH_EXPORT template <class RealType, class Policy>
 BOOST_MATH_GPU_ENABLED inline RealType entropy(const gamma_distribution<RealType, Policy>& dist)
 {
@@ -380,11 +419,28 @@ BOOST_MATH_GPU_ENABLED inline RealType entropy(const gamma_distribution<RealType
 
    RealType k = dist.shape();
    RealType theta = dist.scale();
-   return k + log(theta) + boost::math::lgamma(k) + (1-k)*digamma(k);
+   if (k < 10)
+   {
+      return k + log(theta) + BOOST_MATH_NAMESPACE::lgamma(k) + (1-k)*digamma(k);
+   }
+   // The same Stirling form as the host path, with the first ten Bernoulli numbers written out (Bernoulli
+   // numbers are not available on the device): r(k) = sum B_2j (1/((2j-1) k^(2j-1)) - 1/(2j k^2j)), whose
+   // tenth term is below 2e-16 of the sum for k >= 10.
+   constexpr double b2j[10] = {1.0 / 6, -1.0 / 30, 1.0 / 42, -1.0 / 30, 5.0 / 66, -691.0 / 2730, 7.0 / 6,
+                               -3617.0 / 510, 43867.0 / 798, -174611.0 / 330};
+   RealType r = 0;
+   RealType k_power = k; // k^(2j - 1)
+   for (int j = 1; j <= 10; ++j)
+   {
+      RealType b = static_cast<RealType>(b2j[j - 1]);
+      r += b / ((2 * j - 1) * k_power) - b / (2 * j * k_power * k);
+      k_power *= k * k;
+   }
+   return log(theta) + log(k) / 2 + constants::log_root_two_pi<RealType>() + constants::half<RealType>() - 1 / (2 * k) + r;
 }
+#endif
 
-} // namespace math
-} // namespace boost
+BOOST_MATH_NAMESPACE_END
 
 // This include must be at the end, *after* the accessors
 // for this distribution have been defined, in order to

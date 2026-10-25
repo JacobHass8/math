@@ -26,7 +26,7 @@
 #endif
 #endif
 
-namespace boost::math::tools {
+BOOST_MATH_NAMESPACE_BEGIN namespace tools {
 
 BOOST_MATH_EXPORT template<typename Real, typename Z = int64_t>
 class luroth_expansion {
@@ -79,10 +79,10 @@ public:
            x = dn*(dn+1)*(x - tmp);
         }
 
-        for (size_t i = 1; i < d_.size(); ++i)
+        for (size_t k = 1; k < d_.size(); ++k)
         {
             // Sanity check:
-            if (d_[i] <= 0)
+            if (d_[k] <= 0)
             {
                 throw std::domain_error("Found a digit <= 0; this is an error.");
             }
@@ -147,5 +147,5 @@ std::ostream& operator<<(std::ostream& out, luroth_expansion<Real, Z2>& luroth)
 }
 
 
-}
+} BOOST_MATH_NAMESPACE_END
 #endif

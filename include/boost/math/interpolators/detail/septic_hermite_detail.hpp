@@ -15,8 +15,9 @@
 #include <cstdint>
 #endif
 
-namespace boost {
-namespace math {
+#include <boost/math/tools/config.hpp>
+
+BOOST_MATH_NAMESPACE_BEGIN
 namespace interpolators {
 namespace detail {
 
@@ -161,16 +162,24 @@ public:
         Real t = (x-x0)/dx;
         Real t2 = t*t;
         Real t3 = t2*t;
-        Real z0 = 140*t3*(1 + t*(-3 + t*(3 - t)));
-        Real z1 = 1 + t3*(-80 + t*(225 + t*(-216 + 70*t)));
-        Real z2 = t3*(-60 + t*(195 + t*(-204 + 70*t)));
-        Real z3 = 1 + t2*(-20 + t*(50 + t*(-45 + 14*t)));
-        Real z4 = t2*(10 + t*(-35 + t*(39 - 14*t)));
-        Real z5 = 3 + t*(-16 + t*(30 + t*(-24 + 7*t)));
-        Real z6 = t*(-4 + t*(15 + t*(-18 + 7*t)));
+        // The basis polynomials factored at their zeros, with u = 1 - t (exact for t >= 1/2): expanded,
+        // they lose up to ~60 eps to cancellation near their zeros.
+        Real u = 1 - t;
+        Real u2 = u*u;
+        Real u3 = u2*u;
+        Real z1 = u3*(1 + t*(3 + t*(6 - 70*t)));
+        Real z2 = t3*(1 + u*(3 + u*(6 - 70*u)));
+        Real z3 = u3*(1 + t*(3 - 14*t));
+        Real z4 = t2*u*(10 + t*(-25 + 14*t));
+        Real z5 = u3*(3 - 7*t);
+        Real z6 = t*u2*(-4 + 7*t);
 
-        Real dydx = z0*(y1-y0)/dx;
-        dydx += z1*v0 + z2*v1;
+        // z0 m + z1 v0 + z2 v1, with m the secant slope, has terms ~10x the result that cancel. Since
+        // z0 + z1 + z2 = 1 (lines are reproduced), it is v0 + z0 (m - v0) + z2 (v1 - v0), whose terms
+        // vanish at t = 0, or, nearer t = 1, the same anchored at v1:
+        Real m = (y1-y0)/dx;
+        Real z0 = 140*t3*u3;
+        Real dydx = t < Real(0.5) ? Real(v0 + (z0*(m - v0) + z2*(v1 - v0))) : Real(v1 + (z0*(m - v1) + z1*(v0 - v1)));
         dydx += (x-x0)*(z3*a0 + z4*a1);
         dydx += (x-x0)*(x-x0)*(z5*j0 + z6*j1)/6;
         return dydx;
@@ -322,7 +331,7 @@ public:
         }
         if (x == xf)
         {
-            return dy_.back()/inv_dx_;
+            return dy_.back()*inv_dx_;
         }
 
         return this->unchecked_prime(x);
@@ -337,7 +346,7 @@ public:
         Real t = s3 - ii;
         if (t==0)
         {
-            return dy_[i]/inv_dx_;
+            return dy_[i]*inv_dx_;
         }
  
         Real y0 = y_[i];
@@ -350,18 +359,24 @@ public:
         Real j1 = d3y_[i+1];
         Real t2 = t*t;
         Real t3 = t2*t;
-        Real z0 = 140*t3*(1 + t*(-3 + t*(3 - t)));
-        Real z1 = 1 + t3*(-80 + t*(225 + t*(-216 + 70*t)));
-        Real z2 = t3*(-60 + t*(195 + t*(-204 + 70*t)));
-        Real z3 = 1 + t2*(-20 + t*(50 + t*(-45 + 14*t)));
-        Real z4 = t2*(10 + t*(-35 + t*(39 - 14*t)));
-        Real z5 = 3 + t*(-16 + t*(30 + t*(-24 + 7*t)));
-        Real z6 = t*(-4 + t*(15 + t*(-18 + 7*t)));
+        // The basis polynomials factored at their zeros, with u = 1 - t (exact for t >= 1/2): expanded,
+        // they lose up to ~60 eps to cancellation near their zeros.
+        Real u = 1 - t;
+        Real u2 = u*u;
+        Real u3 = u2*u;
+        Real z1 = u3*(1 + t*(3 + t*(6 - 70*t)));
+        Real z2 = t3*(1 + u*(3 + u*(6 - 70*u)));
+        Real z3 = u3*(1 + t*(3 - 14*t));
+        Real z4 = t2*u*(10 + t*(-25 + 14*t));
+        Real z5 = u3*(3 - 7*t);
+        Real z6 = t*u2*(-4 + 7*t);
 
-        Real dydx = z0*(y1-y0)*inv_dx_;
-        dydx += (z1*dy0 + z2*dy1)*inv_dx_;
+        // As in septic_hermite_detail::prime, with the slope y1 - y0 in units of dx:
+        Real m = y1 - y0;
+        Real z0 = 140*t3*u3;
+        Real dydx = (t < Real(0.5) ? Real(dy0 + (z0*(m - dy0) + z2*(dy1 - dy0))) : Real(dy1 + (z0*(m - dy1) + z1*(dy0 - dy1))))*inv_dx_;
         dydx += 2*t*(z3*a0 + z4*a1)*inv_dx_;
-        dydx += t*t*(z5*j0 + z6*j1);
+        dydx += t*t*(z5*j0 + z6*j1)*inv_dx_;
         return dydx;
     }
 
@@ -417,7 +432,7 @@ public:
         Real d2ydx2 = z0*(y1-y0)*inv_dx_*inv_dx_;
         d2ydx2 += (z1*dy0 + z2*dy1)*inv_dx_*inv_dx_;
         d2ydx2 += (z3*a0 + z4*a1)*2*inv_dx_*inv_dx_;
-        d2ydx2 += 6*(z5*j0 + z6*j1)/(inv_dx_*inv_dx_);
+        d2ydx2 += 6*(z5*j0 + z6*j1)*inv_dx_*inv_dx_;
 
         return d2ydx2;
     }
@@ -561,18 +576,24 @@ public:
         Real j1 = data_[i+1][3];
         Real t2 = t*t;
         Real t3 = t2*t;
-        Real z0 = 140*t3*(1 + t*(-3 + t*(3 - t)));
-        Real z1 = 1 + t3*(-80 + t*(225 + t*(-216 + 70*t)));
-        Real z2 = t3*(-60 + t*(195 + t*(-204 + 70*t)));
-        Real z3 = 1 + t2*(-20 + t*(50 + t*(-45 + 14*t)));
-        Real z4 = t2*(10 + t*(-35 + t*(39 - 14*t)));
-        Real z5 = 3 + t*(-16 + t*(30 + t*(-24 + 7*t)));
-        Real z6 = t*(-4 + t*(15 + t*(-18 + 7*t)));
+        // The basis polynomials factored at their zeros, with u = 1 - t (exact for t >= 1/2): expanded,
+        // they lose up to ~60 eps to cancellation near their zeros.
+        Real u = 1 - t;
+        Real u2 = u*u;
+        Real u3 = u2*u;
+        Real z1 = u3*(1 + t*(3 + t*(6 - 70*t)));
+        Real z2 = t3*(1 + u*(3 + u*(6 - 70*u)));
+        Real z3 = u3*(1 + t*(3 - 14*t));
+        Real z4 = t2*u*(10 + t*(-25 + 14*t));
+        Real z5 = u3*(3 - 7*t);
+        Real z6 = t*u2*(-4 + 7*t);
 
-        Real dydx = z0*(y1-y0)*inv_dx_;
-        dydx += (z1*dy0 + z2*dy1)*inv_dx_;
+        // As in septic_hermite_detail::prime, with the slope y1 - y0 in units of dx:
+        Real m = y1 - y0;
+        Real z0 = 140*t3*u3;
+        Real dydx = (t < Real(0.5) ? Real(dy0 + (z0*(m - dy0) + z2*(dy1 - dy0))) : Real(dy1 + (z0*(m - dy1) + z1*(dy0 - dy1))))*inv_dx_;
         dydx += 2*t*(z3*a0 + z4*a1)*inv_dx_;
-        dydx += t*t*(z5*j0 + z6*j1);
+        dydx += t*t*(z5*j0 + z6*j1)*inv_dx_;
         return dydx;
     }
 
@@ -627,7 +648,7 @@ public:
         Real d2ydx2 = z0*(y1-y0)*inv_dx_*inv_dx_;
         d2ydx2 += (z1*dy0 + z2*dy1)*inv_dx_*inv_dx_;
         d2ydx2 += (z3*a0 + z4*a1)*2*inv_dx_*inv_dx_;
-        d2ydx2 += 6*(z5*j0 + z6*j1)/(inv_dx_*inv_dx_);
+        d2ydx2 += 6*(z5*j0 + z6*j1)*inv_dx_*inv_dx_;
 
         return d2ydx2;
     }
@@ -650,6 +671,5 @@ private:
 
 }
 }
-}
-}
+BOOST_MATH_NAMESPACE_END
 #endif

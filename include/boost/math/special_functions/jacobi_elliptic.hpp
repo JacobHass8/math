@@ -12,12 +12,12 @@
 #include <boost/math/policies/error_handling.hpp>
 #include <boost/math/special_functions/math_fwd.hpp>
 
-namespace boost{ namespace math{
+BOOST_MATH_NAMESPACE_BEGIN
 
 namespace detail{
 
 template <class T, class Policy>
-T jacobi_recurse(const T& x, const T& k, T anm1, T bnm1, unsigned N, T* pTn, const Policy& pol)
+T jacobi_recurse(const T& x, const T& k, T anm1, T bnm1, unsigned N, const Policy& pol)
 {
    BOOST_MATH_STD_USING
    ++N;
@@ -29,9 +29,7 @@ T jacobi_recurse(const T& x, const T& k, T anm1, T bnm1, unsigned N, T* pTn, con
       Tn = ldexp(T(1), (int)N) * x * an;
    }
    else
-      Tn = jacobi_recurse<T>(x, k, an, sqrt(anm1 * bnm1), N, 0, pol);
-   if(pTn)
-      *pTn = Tn;
+      Tn = jacobi_recurse<T>(x, k, an, sqrt(anm1 * bnm1), N, pol);
    return (Tn + asin((cn / an) * sin(Tn))) / 2;
 }
 
@@ -103,13 +101,17 @@ T jacobi_imp(const T& x, const T& k, T* cn, T* dn, const Policy& pol, const char
       T sn3 = (72 * x * cu + 4 * (8 * x * x - 5) * su - 19 * sinh(3 * x) + sinh(5 * x)) * sec * sec * sec * m1 * m1 / 512;
       return sn + sn2 - sn3;
    }*/
-   T T1;
    T kc = 1 - k;
    T k_prime = k < T(0.5) ? T(sqrt(1 - k * k)) : T(sqrt(2 * kc - kc * kc));
-   T T0 = jacobi_recurse(x, k, T(1), k_prime, 0, &T1, pol);
-   *cn = cos(T0);
-   *dn = cos(T0) / cos(T1 - T0);
-   return sin(T0);
+   T T0 = jacobi_recurse<T>(x, k, T(1), k_prime, 0, pol);
+   T sn = sin(T0);
+   T c = cos(T0);
+   *cn = c;
+   //
+   // dn^2 = 1 - k^2 sn^2 = cn^2 + k'^2 sn^2, which doesn't lose digits near the zeros of cn:
+   //
+   *dn = sqrt(c * c + k_prime * k_prime * sn * sn);
+   return sn;
 }
 
 } // namespace detail
@@ -314,6 +316,6 @@ inline typename tools::promote_args<T, U>::type jacobi_cs(T k, U theta)
    return jacobi_cs(k, theta, policies::policy<>());
 }
 
-}} // namespaces
+BOOST_MATH_NAMESPACE_END
 
 #endif // BOOST_MATH_JACOBI_ELLIPTIC_HPP

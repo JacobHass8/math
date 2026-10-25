@@ -14,21 +14,24 @@
 #endif
 #include <boost/math/special_functions/fpclassify.hpp>
 
-#if __has_include("lodepng.h")
-
+// write_png uses lodepng (https://github.com/lvandeve/lodepng) only on request, so that a program which merely has lodepng.h
+// on its include path still links: define BOOST_MATH_USE_LODEPNG, or include lodepng.h before this header, and link lodepng.cpp.
+#if defined(BOOST_MATH_USE_LODEPNG) && !defined(LODEPNG_H)
 #include "lodepng.h"
+#endif
+#ifdef LODEPNG_H
 #ifndef BOOST_MATH_BUILD_MODULE
 #include <iostream>
 #include <string>
 #include <vector>
 #endif
 
-namespace boost::math::tools {
+BOOST_MATH_NAMESPACE_BEGIN namespace tools {
 
 // In lodepng, the vector is expected to be row major, with the top row
 // specified first. Note that this is a bit confusing sometimes as it's more
 // natural to let y increase moving *up*.
-unsigned write_png(const std::string &filename,
+inline unsigned write_png(const std::string &filename,
                    const std::vector<std::uint8_t> &img, std::size_t width,
                    std::size_t height) {
   unsigned error = lodepng::encode(filename, img, width, height,
@@ -39,10 +42,10 @@ unsigned write_png(const std::string &filename,
   return error;
 }
 
-} // Namespace boost::math::tools
-#endif // __has_include("lodepng.h")
+} BOOST_MATH_NAMESPACE_END // Namespace boost::math::tools
+#endif // LODEPNG_H
 
-namespace boost::math::tools {
+BOOST_MATH_NAMESPACE_BEGIN namespace tools {
 
 namespace detail {
 
@@ -1873,7 +1876,7 @@ color_map_(Real scalar, std::array<std::array<Real, 3>, 256> const &table) {
                 "arithmetic. If you require bytes please submit an issue or "
                 "pull request");
 
-  using boost::math::isnan;
+  using BOOST_MATH_NAMESPACE::isnan;
 
   if ((isnan)(scalar))
   {
@@ -1942,6 +1945,6 @@ std::array<std::uint8_t, 4> to_8bit_rgba(const std::array<Real, 3> &v) {
   return pixel;
 }
 
-} // Namespace boost::math::tools
+} BOOST_MATH_NAMESPACE_END // Namespace boost::math::tools
 
 #endif // BOOST_MATH_COLOR_MAPS_HPP

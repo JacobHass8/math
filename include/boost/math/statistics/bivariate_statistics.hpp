@@ -28,7 +28,7 @@
 #endif
 #endif
 
-namespace boost{ namespace math{ namespace statistics { namespace detail {
+BOOST_MATH_NAMESPACE_BEGIN namespace statistics { namespace detail {
 
 // See Equation III.9 of "Numerically Stable, Single-Pass, Parallel Statistics Algorithms", Bennet et al.
 template<typename ReturnType, typename ForwardIterator>
@@ -301,7 +301,7 @@ ReturnType correlation_coefficient_parallel_impl(ForwardIterator u_begin, Forwar
         mu_u_a = mu_u_a + delta_u*(n_b/n_ab);
         mu_v_a = mu_v_a + delta_v*(n_b/n_ab);
         Qu_a = Qu_a + Qu_b + delta_u*delta_u*((n_a*n_b)/n_ab);
-        Qv_b = Qv_a + Qv_b + delta_v*delta_v*((n_a*n_b)/n_ab);
+        Qv_a = Qv_a + Qv_b + delta_v*delta_v*((n_a*n_b)/n_ab);
         n_a = n_ab;
     }
 
@@ -469,6 +469,6 @@ inline Real correlation_coefficient(Container const & u, Container const & v)
 
 #endif
 
-}}} // namespace boost::math::statistics
+} BOOST_MATH_NAMESPACE_END // namespace boost::math::statistics
 
 #endif

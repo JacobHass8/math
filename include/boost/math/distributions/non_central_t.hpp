@@ -18,11 +18,12 @@
 #include <boost/math/special_functions/trunc.hpp>
 #include <boost/math/special_functions/detail/hypergeometric_series.hpp>
 #include <boost/math/quadrature/exp_sinh.hpp>
+#include <boost/math/quadrature/gauss_kronrod.hpp>
+#include <boost/math/quadrature/tanh_sinh.hpp>
+#include <boost/math/special_functions/log1p.hpp>
+#include <boost/math/special_functions/erf.hpp>
 
-namespace boost
-{
-   namespace math
-   {
+BOOST_MATH_NAMESPACE_BEGIN
 
       BOOST_MATH_EXPORT template <class RealType, class Policy>
       class non_central_t_distribution;
@@ -131,7 +132,7 @@ namespace boost
             // Variables come first:
             //
             std::uintmax_t max_iter = policies::get_max_series_iterations<Policy>();
-            T errtol = boost::math::policies::get_epsilon<T, Policy>();
+            T errtol = BOOST_MATH_NAMESPACE::policies::get_epsilon<T, Policy>();
             T d2 = delta * delta / 2;
             //
             // k is the starting point for iteration, and is the
@@ -152,7 +153,7 @@ namespace boost
                //
                pois = exp(-d2);
                pois *= pow(d2, static_cast<T>(k));
-               pois /= boost::math::tgamma(T(k + 1 + 0.5), pol);
+               pois /= BOOST_MATH_NAMESPACE::tgamma(T(k + 1 + 0.5), pol);
                pois *= delta / constants::root_two<T>();
             }
             else
@@ -221,10 +222,78 @@ namespace boost
          }
 
          template <class T, class Policy>
+         T non_central_t_left_tail_integral(T v, T delta, T t, const Policy& pol)
+         {
+            BOOST_MATH_STD_USING
+            //
+            // Computes P(T <= -t) for t > 0 and delta > 0, which is the upper tail Q(t) of the
+            // distribution with non-centrality -delta.  The series used for the cdf sum terms of both
+            // signs here, which cancel when this tail is small (they sum to the much larger tail on the
+            // other side), so integrate the tail directly instead:
+            //
+            //   P(T <= -t) = E[Phi(-(t s + delta))],   s = sqrt(chi^2_v / v),
+            //
+            // where the integrand is positive.  The chi density is 2 (v/2)^(v/2) e^(-v/2) / Gamma(v/2)
+            // times s^(v-1) exp(-v (s^2 - 1) / 2).
+            //
+            T half_v = v / 2;
+            T t2 = t * t;
+            T eps = policies::get_epsilon<T, Policy>();
+            auto integrand = [&](T s) -> T
+               {
+                  // (v - 1) log(s) - v (s^2 - 1) / 2, avoiding cancellation for s close to 1:
+                  T e;
+                  if (fabs(s - 1) < 0.5f)
+                  {
+                     T d = s - 1;
+                     e = v * (BOOST_MATH_NAMESPACE::log1pmx(d, pol) - d * d / 2) - BOOST_MATH_NAMESPACE::log1p(d, pol);
+                  }
+                  else
+                     e = (v - 1) * log(s) - half_v * (s * s - 1);
+                  return exp(e) * BOOST_MATH_NAMESPACE::erfc((t * s + delta) / constants::root_two<T>(), pol) / 2;
+               };
+            //
+            // The integrand is only significant in a narrow window, for large v much narrower than the
+            // interval (0, inf), so first locate it.  The upper limit is where the tail of
+            // exp(-t delta s - (v + t^2) s^2 / 2), the factors that decay for large s, has fallen to epsilon:
+            //
+            T hi = (sqrt(t2 * delta * delta - 2 * (v + t2) * log(eps)) - t * delta) / (v + t2);
+            T result;
+            if (v < 2)
+            {
+               //
+               // The integrand is singular at zero (for v < 1) or has a singular derivative there,
+               // and is otherwise wide, so tanh-sinh quadrature is the right tool:
+               //
+               result = quadrature::tanh_sinh<T, Policy>().integrate(integrand, T(0), hi);
+               return result * 2 * half_v * gamma_p_derivative(half_v, half_v, pol);
+            }
+            //
+            // Otherwise estimate the mode m and the width of the window around it from the Gaussian
+            // approximation to Phi(-a), and integrate each side of the mode separately:
+            //
+            T disc = t2 * delta * delta + 4 * (v + t2) * (v - 1);
+            T m = (sqrt(disc) - t * delta) / (2 * (v + t2));
+            T w = 2 * sqrt(-2 * log(eps) / (v + t2 + (v - 1) / (m * m)));
+            using integrator = quadrature::gauss_kronrod<T, 15, Policy>;
+            if (m + w > hi)
+               hi = m + w;
+            // The default tolerance of sqrt(epsilon) leaves errors of 1e-12 or so, which is more than the series:
+            T tol = pow(eps, T(2) / 3);
+            result = integrator::integrate(integrand, m, hi, 15, tol);
+            if (m > w)
+               result += integrator::integrate(integrand, m - w, m, 15, tol);
+            else
+               result += integrator::integrate(integrand, T(0), m, 15, tol);
+            // The normalisation constant is 2 (v/2)^(v/2) e^(-v/2) / Gamma(v/2):
+            return result * 2 * half_v * gamma_p_derivative(half_v, half_v, pol);
+         }
+
+         template <class T, class Policy>
          T non_central_t_cdf(T v, T delta, T t, bool invert, const Policy& pol)
          {
             BOOST_MATH_STD_USING
-            if ((boost::math::isinf)(v))
+            if ((BOOST_MATH_NAMESPACE::isinf)(v))
             { // Infinite degrees of freedom, so use normal distribution located at delta.
                normal_distribution<T, Policy> n(delta, 1);
                return cdf(n, t);
@@ -273,19 +342,25 @@ namespace boost
                //
                // Calculate p:
                //
-               T c = 0;
+               T beta_p = 0;
                if(x != 0)
                {
-                  c = non_central_beta_p(a, b, d2, x, y, pol);
-                  result = non_central_t2_p(v, delta, x, y, pol, c);
+                  beta_p = non_central_beta_p(a, b, d2, x, y, pol);
+                  result = non_central_t2_p(v, delta, x, y, pol, beta_p);
                   result /= 2;
                }
                else
                   result = 0;
                if (invert)
                {
-                  result = cdf(complement(boost::math::normal_distribution<T, Policy>(), -delta)) - result;
-                  if ((x != 0) && (fabs(result / (c * tools::epsilon<T>())) < 1000))
+                  T upper = cdf(complement(BOOST_MATH_NAMESPACE::normal_distribution<T, Policy>(), -delta));
+                  result = upper - result;
+                  if ((delta < 0) && (x != 0) && (result < (std::max)(beta_p, upper) / 8))
+                  {
+                     // Most of the digits have cancelled, compute the tail directly:
+                     return non_central_t_left_tail_integral(v, T(-delta), t, pol);
+                  }
+                  if ((x != 0) && (fabs(result / (beta_p * tools::epsilon<T>())) < 1000))
                   {
                       // We've cancelled out most of the digits in the result, try A&S 26.7.9,
                       // this is only accurate to a couple of digits at best, but it's better
@@ -295,13 +370,13 @@ namespace boost
 
                       T z = (t * (1 - 1 / (4 * v)) - delta) / sqrt(1 + t * t / (2 * v));
 
-                      return cdf(boost::math::normal_distribution<T, Policy>(), z);
+                      return cdf(BOOST_MATH_NAMESPACE::normal_distribution<T, Policy>(), z);
 
                   }
                   invert = false;
                }
                else
-                  result += cdf(boost::math::normal_distribution<T, Policy>(), -delta);
+                  result += cdf(BOOST_MATH_NAMESPACE::normal_distribution<T, Policy>(), -delta);
             }
             else
             {
@@ -312,11 +387,18 @@ namespace boost
                if(x != 0)
                {
                   result = non_central_beta_q(a, b, d2, x, y, pol);
+                  T positive = result;
                   result = non_central_t2_q(v, delta, x, y, pol, result);
+                  if (!invert && (delta < 0) && (result < positive / 8))
+                  {
+                     // The terms with delta < 0 have cancelled most of the digits of the
+                     // (small) upper tail, compute it directly:
+                     return non_central_t_left_tail_integral(v, T(-delta), t, pol);
+                  }
                   result /= 2;
                }
                else // x == 0
-                  result = cdf(complement(boost::math::normal_distribution<T, Policy>(), -delta));
+                  result = cdf(complement(BOOST_MATH_NAMESPACE::normal_distribution<T, Policy>(), -delta));
             }
             if(invert)
                result = 1 - result;
@@ -357,7 +439,7 @@ namespace boost
 
 
             value_type guess = 0;
-            if ( ((boost::math::isinf)(v)) || (v > 1 / boost::math::tools::epsilon<T>()) )
+            if ( ((BOOST_MATH_NAMESPACE::isinf)(v)) || (v > 1 / BOOST_MATH_NAMESPACE::tools::epsilon<T>()) )
             { // Infinite or very large degrees of freedom, so use normal distribution located at delta.
                normal_distribution<T, Policy> n(delta, 1);
                if (p < q)
@@ -390,10 +472,10 @@ namespace boost
                forwarding_policy());
             int s;
             if(p < q)
-               s = boost::math::sign(p - pzero);
+               s = BOOST_MATH_NAMESPACE::sign(p - pzero);
             else
-               s = boost::math::sign(pzero - q);
-            if(s != boost::math::sign(guess))
+               s = BOOST_MATH_NAMESPACE::sign(pzero - q);
+            if(s != BOOST_MATH_NAMESPACE::sign(guess))
             {
                guess = static_cast<T>(s);
             }
@@ -413,7 +495,7 @@ namespace boost
          T non_central_t_pdf_integral(T x, T v, T mu, const Policy& pol)
          {
             BOOST_MATH_STD_USING
-            boost::math::quadrature::exp_sinh<T, Policy> integrator;
+            BOOST_MATH_NAMESPACE::quadrature::exp_sinh<T, Policy> integrator;
             T integral = pow(v, v / 2) * exp(-v * mu * mu / (2 * (x * x + v)));
             if (integral != 0)
             {
@@ -421,13 +503,13 @@ namespace boost
                   {
                      T p;
                      if (v * log(y) < tools::log_max_value<T>())
-                        p = pow(y, v) * exp(boost::math::pow<2>((y - mu * x / sqrt(x * x + v))) / -2);
+                        p = pow(y, v) * exp(BOOST_MATH_NAMESPACE::pow<2>((y - mu * x / sqrt(x * x + v))) / -2);
                      else
-                        p = exp(log(y) * v + boost::math::pow<2>((y - mu * x / sqrt(x * x + v))) / -2);
+                        p = exp(log(y) * v + BOOST_MATH_NAMESPACE::pow<2>((y - mu * x / sqrt(x * x + v))) / -2);
                      return p; 
                   });
             }
-            integral /= boost::math::constants::root_pi<T>() * boost::math::tgamma(v / 2, pol) * pow(T(2), (v - 1) / 2) * pow(x * x + v, (v + 1) / 2);
+            integral /= BOOST_MATH_NAMESPACE::constants::root_pi<T>() * BOOST_MATH_NAMESPACE::tgamma(v / 2, pol) * pow(T(2), (v - 1) / 2) * pow(x * x + v, (v + 1) / 2);
             return integral;
          }
 
@@ -441,13 +523,13 @@ namespace boost
             // We only call this routine when we know that the series form of 1F1 is cheap to evaluate,
             // so no need to call the whole 1F1 function, just the series will do:
             //
-            T Av = hypergeometric_1F1_generic_series(static_cast<T>((v + 1) / 2), boost::math::constants::half<T>(), static_cast<T>(mu * mu * x * x / (2 * (x * x + v))), pol, scale, function);
+            T Av = hypergeometric_1F1_generic_series(static_cast<T>((v + 1) / 2), BOOST_MATH_NAMESPACE::constants::half<T>(), static_cast<T>(mu * mu * x * x / (2 * (x * x + v))), pol, scale, function);
             Av = ldexp(Av, static_cast<int>(scale));
             scale = 0;
             T Bv = hypergeometric_1F1_generic_series(static_cast<T>(v / 2 + T(1)), static_cast<T>(T(3) / 2), static_cast<T>(mu * mu * x * x / (2 * (x * x + v))), pol, scale, function);
             Bv = ldexp(Bv, static_cast<int>(scale));
-            Bv *= boost::math::tgamma_delta_ratio(v / 2 + T(1), -constants::half<T>(), pol);
-            Bv *= boost::math::constants::root_two<T>() * mu * x / sqrt(x * x + v);
+            Bv *= BOOST_MATH_NAMESPACE::tgamma_delta_ratio(v / 2 + T(1), -constants::half<T>(), pol);
+            Bv *= BOOST_MATH_NAMESPACE::constants::root_two<T>() * mu * x / sqrt(x * x + v);
 
             T tolerance = tools::root_epsilon<T>() * Av * 4;
             Av += Bv;
@@ -458,8 +540,8 @@ namespace boost
                return non_central_t_pdf_integral(x, v, mu, pol);
             }
 
-            Av *= exp(-mu * mu / 2) * pow(1 + x * x / v, -(v + 1) / 2) * boost::math::tgamma_delta_ratio(v / 2 + constants::half<T>(), -constants::half<T>(), pol);
-            Av /= sqrt(v) * boost::math::constants::root_pi<T>();
+            Av *= exp(-mu * mu / 2) * pow(1 + x * x / v, -(v + 1) / 2) * BOOST_MATH_NAMESPACE::tgamma_delta_ratio(v / 2 + constants::half<T>(), -constants::half<T>(), pol);
+            Av /= sqrt(v) * BOOST_MATH_NAMESPACE::constants::root_pi<T>();
             return Av;
          }
 
@@ -471,7 +553,7 @@ namespace boost
             // Variables come first:
             //
             std::uintmax_t max_iter = policies::get_max_series_iterations<Policy>();
-            T errtol = boost::math::policies::get_epsilon<T, Policy>();
+            T errtol = BOOST_MATH_NAMESPACE::policies::get_epsilon<T, Policy>();
             T d2 = delta * delta / 2;
             //
             // k is the starting point for iteration, and is the
@@ -560,7 +642,7 @@ namespace boost
          T non_central_t_pdf(T n, T delta, T t, const Policy& pol)
          {
             BOOST_MATH_STD_USING
-            if ((boost::math::isinf)(n))
+            if ((BOOST_MATH_NAMESPACE::isinf)(n))
             { // Infinite degrees of freedom, so use normal distribution located at delta.
                normal_distribution<T, Policy> norm(delta, 1);
                return pdf(norm, t);
@@ -651,12 +733,12 @@ namespace boost
          template <class T, class Policy>
          T mean(T v, T delta, const Policy& pol)
          {
-            if ((boost::math::isinf)(v))
+            if ((BOOST_MATH_NAMESPACE::isinf)(v))
             {
                return delta;
             }
             BOOST_MATH_STD_USING
-            if (v > 1 / boost::math::tools::epsilon<T>() )
+            if (v > 1 / BOOST_MATH_NAMESPACE::tools::epsilon<T>() )
             {
               //normal_distribution<T, Policy> n(delta, 1);
               //return boost::math::mean(n);
@@ -672,7 +754,7 @@ namespace boost
          template <class T, class Policy>
          T variance(T v, T delta, const Policy& pol)
          {
-            if ((boost::math::isinf)(v))
+            if ((BOOST_MATH_NAMESPACE::isinf)(v))
             {
                return 1;
             }
@@ -690,7 +772,7 @@ namespace boost
          T skewness(T v, T delta, const Policy& pol)
          {
             BOOST_MATH_STD_USING
-            if ((boost::math::isinf)(v))
+            if ((BOOST_MATH_NAMESPACE::isinf)(v))
             {
                return 0;
             }
@@ -698,7 +780,7 @@ namespace boost
             { // == Student's t
               return 0;
             }
-            T mean = boost::math::detail::mean(v, delta, pol);
+            T mean = BOOST_MATH_NAMESPACE::detail::mean(v, delta, pol);
             T l2 = delta * delta;
             T var = ((l2 + 1) * v) / (v - 2) - mean * mean;
             T result = -2 * var;
@@ -712,7 +794,7 @@ namespace boost
          T kurtosis_excess(T v, T delta, const Policy& pol)
          {
             BOOST_MATH_STD_USING
-            if ((boost::math::isinf)(v))
+            if ((BOOST_MATH_NAMESPACE::isinf)(v))
             {
                return 1;
             }
@@ -720,7 +802,7 @@ namespace boost
             { // == Student's t
               return 1;
             }
-            T mean = boost::math::detail::mean(v, delta, pol);
+            T mean = BOOST_MATH_NAMESPACE::detail::mean(v, delta, pol);
             T l2 = delta * delta;
             T var = ((l2 + 1) * v) / (v - 2) - mean * mean;
             T result = -3 * var;
@@ -772,6 +854,29 @@ namespace boost
                return policies::raise_evaluation_error<RealType>(function, "Can't find degrees of freedom when the abscissa value is very close to zero as all degrees of freedom generate the same CDF at x=0: try again further out in the tails!!",
                   RealType(std::numeric_limits<RealType>::quiet_NaN()), Policy()); // LCOV_EXCL_LINE
             }
+
+            // The limiting CDF values are
+            //
+            //   v -> 0:   Phi(-delta)
+            //   v -> inf: Phi(x - delta)
+            //
+            // Outside the interval between these limits, a monotone CDF(v)
+            // has no inverse, and a non-monotone one may have several, so we
+            // cannot select a unique degree of freedom.  This only screens
+            // out-of-range p: it does not detect multiple roots inside the
+            // interval.  See https://github.com/boostorg/math/issues/1410
+            normal_distribution<RealType, Policy> normal;
+            RealType p0 = cdf(normal, -delta);
+            RealType pinf = cdf(normal, x - delta);
+            RealType lower = p0 < pinf ? p0 : pinf;
+            RealType upper = p0 < pinf ? pinf : p0;
+            if((p < lower) || (p > upper))
+            {
+               return policies::raise_evaluation_error<RealType>(function,
+                  "Probability lies outside the interval between the limiting CDF values; the inverse is absent or non-unique: result was %1%",
+                  RealType(std::numeric_limits<RealType>::quiet_NaN()), Policy());
+            }
+
             t_degrees_of_freedom_finder<RealType, Policy> f(delta, x, p < q ? p : q, p < q ? false : true);
             tools::eps_tolerance<RealType> tol(policies::digits<RealType, Policy>());
             std::uintmax_t max_iter = policies::get_max_root_iterations<Policy>();
@@ -970,7 +1075,7 @@ namespace boost
 
       #ifdef __cpp_deduction_guides
       BOOST_MATH_EXPORT template <class RealType>
-      non_central_t_distribution(RealType,RealType)->non_central_t_distribution<typename boost::math::tools::promote_args<RealType>::type>;
+      non_central_t_distribution(RealType,RealType)->non_central_t_distribution<typename BOOST_MATH_NAMESPACE::tools::promote_args<RealType>::type>;
       #endif
 
       // Non-member functions to give properties of the distribution.
@@ -978,7 +1083,7 @@ namespace boost
       BOOST_MATH_EXPORT template <class RealType, class Policy>
       inline const std::pair<RealType, RealType> range(const non_central_t_distribution<RealType, Policy>& /* dist */)
       { // Range of permissible values for random variable k.
-         using boost::math::tools::max_value;
+         using BOOST_MATH_NAMESPACE::tools::max_value;
          return std::pair<RealType, RealType>(-max_value<RealType>(), max_value<RealType>());
       }
 
@@ -986,7 +1091,7 @@ namespace boost
       inline const std::pair<RealType, RealType> support(const non_central_t_distribution<RealType, Policy>& /* dist */)
       { // Range of supported values for random variable k.
          // This is range where cdf rises from 0 to 1, and outside it, the pdf is zero.
-         using boost::math::tools::max_value;
+         using BOOST_MATH_NAMESPACE::tools::max_value;
          return std::pair<RealType, RealType>(-max_value<RealType>(), max_value<RealType>());
       }
 
@@ -1232,7 +1337,7 @@ namespace boost
             &r,
             Policy()))
                return static_cast<RealType>(r);
-         if ((boost::math::isinf)(v))
+         if ((BOOST_MATH_NAMESPACE::isinf)(v))
           { // Infinite degrees of freedom, so use normal distribution located at delta.
              normal_distribution<RealType, Policy> n(l, 1);
              cdf(n, x);
@@ -1287,7 +1392,7 @@ namespace boost
             Policy()))
                return static_cast<RealType>(r);
 
-         if ((boost::math::isinf)(v))
+         if ((BOOST_MATH_NAMESPACE::isinf)(v))
          { // Infinite degrees of freedom, so use normal distribution located at delta.
              normal_distribution<RealType, Policy> n(l, 1);
              return cdf(complement(n, x));
@@ -1325,8 +1430,7 @@ namespace boost
          return detail::non_central_t_quantile(function, v, l, RealType(1-q), q, Policy());
       } // quantile complement.
 
-   } // namespace math
-} // namespace boost
+   BOOST_MATH_NAMESPACE_END
 
 // This include must be at the end, *after* the accessors
 // for this distribution have been defined, in order to

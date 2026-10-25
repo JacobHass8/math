@@ -10,16 +10,16 @@
 #endif
 #include <boost/math/interpolators/detail/cardinal_trigonometric_detail.hpp>
 
-namespace boost { namespace math { namespace interpolators {
+BOOST_MATH_NAMESPACE_BEGIN namespace interpolators {
 
-template<class RandomAccessContainer>
+BOOST_MATH_EXPORT template<class RandomAccessContainer>
 class cardinal_trigonometric
 {
 public:
     using Real = typename RandomAccessContainer::value_type;
     cardinal_trigonometric(RandomAccessContainer const & v, Real t0, Real h)
     {
-        m_impl = std::make_shared<interpolators::detail::cardinal_trigonometric_detail<Real>>(v.data(), v.size(), t0, h);
+        m_impl = std::make_shared<interpolators::detail::cardinal_trigonometric_detail<Real>>(v, t0, h);
     }
 
     Real operator()(Real t) const
@@ -56,5 +56,5 @@ private:
     std::shared_ptr<interpolators::detail::cardinal_trigonometric_detail<Real>> m_impl;
 };
 
-}}}
+} BOOST_MATH_NAMESPACE_END
 #endif

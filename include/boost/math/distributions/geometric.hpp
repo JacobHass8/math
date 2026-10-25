@@ -55,17 +55,14 @@
 // in domain_error_imp in error_handling.
 #endif
 
-namespace boost
-{
-  namespace math
-  {
+BOOST_MATH_NAMESPACE_BEGIN
     namespace geometric_detail
     {
       // Common error checking routines for geometric distribution function:
       template <class RealType, class Policy>
       BOOST_MATH_GPU_ENABLED inline bool check_success_fraction(const char* function, const RealType& p, RealType* result, const Policy& pol)
       {
-        if( !(boost::math::isfinite)(p) || (p < 0) || (p > 1) )
+        if( !(BOOST_MATH_NAMESPACE::isfinite)(p) || (p < 0) || (p > 1) )
         {
           *result = policies::raise_domain_error<RealType>(
             function,
@@ -88,7 +85,7 @@ namespace boost
         {
           return false;
         }
-        if( !(boost::math::isfinite)(k) || (k < 0) )
+        if( !(BOOST_MATH_NAMESPACE::isfinite)(k) || (k < 0) )
         { // Check k failures.
           *result = policies::raise_domain_error<RealType>(
             function,
@@ -239,22 +236,22 @@ namespace boost
 
     #ifdef __cpp_deduction_guides
     BOOST_MATH_EXPORT template <class RealType>
-    geometric_distribution(RealType)->geometric_distribution<typename boost::math::tools::promote_args<RealType>::type>;
+    geometric_distribution(RealType)->geometric_distribution<typename BOOST_MATH_NAMESPACE::tools::promote_args<RealType>::type>;
     #endif
 
     BOOST_MATH_EXPORT template <class RealType, class Policy>
-    BOOST_MATH_GPU_ENABLED inline const boost::math::pair<RealType, RealType> range(const geometric_distribution<RealType, Policy>& /* dist */)
+    BOOST_MATH_GPU_ENABLED inline const BOOST_MATH_NAMESPACE::pair<RealType, RealType> range(const geometric_distribution<RealType, Policy>& /* dist */)
     { // Range of permissible values for random variable k.
-       using boost::math::tools::max_value;
-       return boost::math::pair<RealType, RealType>(static_cast<RealType>(0), max_value<RealType>()); // max_integer?
+       using BOOST_MATH_NAMESPACE::tools::max_value;
+       return BOOST_MATH_NAMESPACE::pair<RealType, RealType>(static_cast<RealType>(0), max_value<RealType>()); // max_integer?
     }
 
     BOOST_MATH_EXPORT template <class RealType, class Policy>
-    BOOST_MATH_GPU_ENABLED inline const boost::math::pair<RealType, RealType> support(const geometric_distribution<RealType, Policy>& /* dist */)
+    BOOST_MATH_GPU_ENABLED inline const BOOST_MATH_NAMESPACE::pair<RealType, RealType> support(const geometric_distribution<RealType, Policy>& /* dist */)
     { // Range of supported values for random variable k.
        // This is range where cdf rises from 0 to 1, and outside it, the pdf is zero.
-       using boost::math::tools::max_value;
-       return boost::math::pair<RealType, RealType>(static_cast<RealType>(0),  max_value<RealType>()); // max_integer?
+       using BOOST_MATH_NAMESPACE::tools::max_value;
+       return BOOST_MATH_NAMESPACE::pair<RealType, RealType>(static_cast<RealType>(0),  max_value<RealType>()); // max_integer?
     }
 
     BOOST_MATH_EXPORT template <class RealType, class Policy>
@@ -373,8 +370,8 @@ namespace boost
       //RealType q = 1 - p;  // Bad for small p
       //RealType probability = 1 - std::pow(q, k+1);
 
-      RealType z = boost::math::log1p(-p, Policy()) * (k + 1);
-      RealType probability = -boost::math::expm1(z, Policy());
+      RealType z = BOOST_MATH_NAMESPACE::log1p(-p, Policy()) * (k + 1);
+      RealType probability = -BOOST_MATH_NAMESPACE::expm1(z, Policy());
 
       return probability;
     } // cdf Cumulative Distribution Function geometric.
@@ -396,7 +393,7 @@ namespace boost
         k,
         &result, Policy()))
       {
-        return -boost::math::numeric_limits<RealType>::infinity();
+        return -BOOST_MATH_NAMESPACE::numeric_limits<RealType>::infinity();
       }
       if(k == 0)
       {
@@ -405,7 +402,7 @@ namespace boost
       //RealType q = 1 - p;  // Bad for small p
       //RealType probability = 1 - std::pow(q, k+1);
 
-      RealType z = boost::math::log1p(-p, Policy()) * (k + 1);
+      RealType z = BOOST_MATH_NAMESPACE::log1p(-p, Policy()) * (k + 1);
       return log1p(-exp(z), Policy());
     } // logcdf Cumulative Distribution Function geometric.
 
@@ -429,7 +426,7 @@ namespace boost
       {
         return result;
       }
-      RealType z = boost::math::log1p(-p, Policy()) * (k+1);
+      RealType z = BOOST_MATH_NAMESPACE::log1p(-p, Policy()) * (k+1);
       RealType probability = exp(z);
       return probability;
     } // cdf Complemented Cumulative Distribution Function geometric.
@@ -452,10 +449,10 @@ namespace boost
         k,
         &result, Policy()))
       {
-        return -boost::math::numeric_limits<RealType>::infinity();
+        return -BOOST_MATH_NAMESPACE::numeric_limits<RealType>::infinity();
       }
 
-      return boost::math::log1p(-p, Policy()) * (k+1);
+      return BOOST_MATH_NAMESPACE::log1p(-p, Policy()) * (k+1);
     } // logcdf Complemented Cumulative Distribution Function geometric.
 
     BOOST_MATH_EXPORT template <class RealType, class Policy>
@@ -492,8 +489,9 @@ namespace boost
       { // No failures are expected if P = 0.
         return 0; // Total trials will be just dist.successes.
       }
-      // if (P <= pow(dist.success_fraction(), 1))
-      if (x <= success_fraction)
+      // Compare with the cdf itself, not the success fraction it equals
+      // mathematically, so that the rounding below agrees with cdf():
+      if (x <= cdf(dist, RealType(0)))
       { // p <= pdf(dist, 0) == cdf(dist, 0)
         return 0;
       }
@@ -503,10 +501,9 @@ namespace boost
       }
 
       // log(1-x) /log(1-success_fraction) -1; but use log1p in case success_fraction is small
-      result = boost::math::log1p(-x, Policy()) / boost::math::log1p(-success_fraction, Policy()) - 1;
-      // Subtract a few epsilons here too?
-      // to make sure it doesn't slip over, so ceil would be one too many.
-      return result;
+      result = BOOST_MATH_NAMESPACE::log1p(-x, Policy()) / BOOST_MATH_NAMESPACE::log1p(-success_fraction, Policy()) - 1;
+      // Round as the discrete_quantile policy asks, settling on the cdf at integers:
+      return detail::round_discrete_quantile(dist, result, x, false, typename Policy::discrete_quantile_type());
     } // RealType quantile(const geometric_distribution dist, p)
 
     BOOST_MATH_EXPORT template <class RealType, class Policy>
@@ -536,9 +533,9 @@ namespace boost
           // since the probability of zero failures may be non-zero,
           return 0; // but zero is the best we can do:
        }
-       if (-x <= boost::math::powm1(dist.success_fraction(), dist.successes(), Policy()))
-       {  // q <= cdf(complement(dist, 0)) == pdf(dist, 0)
-          return 0; //
+       if (x >= cdf(complement(dist, RealType(0))))
+       {  // As above, q >= cdf(complement(dist, 0)) == 1 - pdf(dist, 0).
+          return 0;
        }
        if(x == 0)
        {  // Probability 1 - Q  == 1 so infinite failures to achieve certainty.
@@ -551,13 +548,23 @@ namespace boost
           // unless #define BOOST_MATH_THROW_ON_OVERFLOW_ERROR
        }
        // log(x) /log(1-success_fraction) -1; but use log1p in case success_fraction is small
-       result = log(x) / boost::math::log1p(-success_fraction, Policy()) - 1;
-      return result;
+       result = log(x) / BOOST_MATH_NAMESPACE::log1p(-success_fraction, Policy()) - 1;
+       return detail::round_discrete_quantile(dist, result, x, true, typename Policy::discrete_quantile_type());
 
     } // quantile complement
 
- } // namespace math
-} // namespace boost
+    BOOST_MATH_EXPORT template <class RealType, class Policy>
+    BOOST_MATH_GPU_ENABLED inline RealType entropy(const geometric_distribution<RealType, Policy>& dist)
+    {
+      BOOST_MATH_STD_USING
+      // -[(1 - p) log(1 - p) + p log(p)] / p: both terms are positive.
+      RealType p = dist.success_fraction();
+      if (p == 1)
+        return 0;
+      return -(1 - p) * BOOST_MATH_NAMESPACE::log1p(-p, Policy()) / p - log(p);
+    }
+
+ BOOST_MATH_NAMESPACE_END
 
 // This include must be at the end, *after* the accessors
 // for this distribution have been defined, in order to

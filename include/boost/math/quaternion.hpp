@@ -30,10 +30,7 @@
 #include <type_traits>
 #endif
 
-namespace boost
-{
-   namespace math
-   {
+BOOST_MATH_NAMESPACE_BEGIN
 
       namespace detail {
 
@@ -52,18 +49,16 @@ namespace boost
          struct is_trivial_arithmetic_type : public is_trivial_arithmetic_type_imp<T>::type {};
       }
 
-#ifndef BOOST_MATH_NO_CXX14_CONSTEXPR
       namespace constexpr_detail
       {
          template <class T>
-         constexpr void swap(T& a, T& b)
+         BOOST_MATH_CXX14_CONSTEXPR void swap(T& a, T& b)
          {
             T t(a);
             a = b;
             b = t;
          }
        }
-#endif
 
        BOOST_MATH_EXPORT template<typename T>
         class quaternion
@@ -183,11 +178,7 @@ namespace boost
 
             BOOST_MATH_CXX14_CONSTEXPR void swap(quaternion& o)
             {
-#ifndef BOOST_MATH_NO_CXX14_CONSTEXPR
                using constexpr_detail::swap;
-#else
-               using std::swap;
-#endif
                swap(a, o.a);
                swap(b, o.b);
                swap(c, o.c);
@@ -1078,7 +1069,7 @@ inline BOOST_MATH_CXX14_CONSTEXPR quaternion<T> operator / (const quaternion<T>&
             using    ::std::exp;
             using    ::std::cos;
             
-            using    ::boost::math::sinc_pi;
+            using    ::BOOST_MATH_NAMESPACE::sinc_pi;
             
             T    u = exp(real(q));
             
@@ -1099,7 +1090,7 @@ inline BOOST_MATH_CXX14_CONSTEXPR quaternion<T> operator / (const quaternion<T>&
             using    ::std::cos;
             using    ::std::cosh;
             
-            using    ::boost::math::sinhc_pi;
+            using    ::BOOST_MATH_NAMESPACE::sinhc_pi;
             
             T    z = abs(unreal(q));
             
@@ -1118,7 +1109,7 @@ inline BOOST_MATH_CXX14_CONSTEXPR quaternion<T> operator / (const quaternion<T>&
             using    ::std::cos;
             using    ::std::cosh;
             
-            using    ::boost::math::sinhc_pi;
+            using    ::BOOST_MATH_NAMESPACE::sinhc_pi;
             
             T    z = abs(unreal(q));
             
@@ -1190,7 +1181,6 @@ inline BOOST_MATH_CXX14_CONSTEXPR quaternion<T> operator / (const quaternion<T>&
                 return(pow(quaternion<T>(static_cast<T>(1))/q,-n));
             }
         }
-    }
-}
+    BOOST_MATH_NAMESPACE_END
 
 #endif /* BOOST_QUATERNION_HPP */

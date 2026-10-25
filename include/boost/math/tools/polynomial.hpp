@@ -31,7 +31,7 @@
 #include <iterator>
 #endif
 
-namespace boost{ namespace math{ namespace tools{
+BOOST_MATH_NAMESPACE_BEGIN namespace tools{
 
 BOOST_MATH_EXPORT template <class T>
 BOOST_MATH_GPU_ENABLED T chebyshev_coefficient(unsigned n, unsigned m)
@@ -52,7 +52,7 @@ BOOST_MATH_GPU_ENABLED T chebyshev_coefficient(unsigned n, unsigned m)
    if(r & 1)
       result = -result;
    result /= n - r;
-   result *= boost::math::binomial_coefficient<T>(n - r, r);
+   result *= BOOST_MATH_NAMESPACE::binomial_coefficient<T>(n - r, r);
    result *= ldexp(1.0f, m);
    return result;
 }
@@ -288,6 +288,7 @@ public:
    BOOST_MATH_GPU_ENABLED polynomial()= default;
 
    template <class U>
+   [[deprecated("Please use the move constructor instead, or pass the order instead of number of terms")]] 
    BOOST_MATH_GPU_ENABLED polynomial(const U* data, unsigned order)
       : m_data(data, data + order + 1)
    {
@@ -334,11 +335,11 @@ public:
       m_data.resize(p.size());
       for(unsigned i = 0; i < p.size(); ++i)
       {
-         m_data[i] = boost::math::tools::real_cast<T>(p[i]);
+         m_data[i] = BOOST_MATH_NAMESPACE::tools::real_cast<T>(p[i]);
       }
    }
 #ifdef BOOST_MATH_HAS_IS_CONST_ITERABLE
-    template <class Range, typename std::enable_if<boost::math::tools::detail::is_const_iterable<Range>::value, bool>::type = true>
+    template <class Range, typename std::enable_if<BOOST_MATH_NAMESPACE::tools::detail::is_const_iterable<Range>::value, bool>::type = true>
     BOOST_MATH_GPU_ENABLED explicit polynomial(const Range& r)
        : polynomial(r.begin(), r.end()) 
     {
@@ -381,7 +382,7 @@ public:
 
    BOOST_MATH_GPU_ENABLED T operator()(T z) const
    {
-      return m_data.size() > 0 ? boost::math::tools::evaluate_polynomial((m_data).data(), z, m_data.size()) : T(0);
+      return m_data.size() > 0 ? BOOST_MATH_NAMESPACE::tools::evaluate_polynomial((m_data).data(), z, m_data.size()) : T(0);
    }
    BOOST_MATH_GPU_ENABLED std::vector<T> chebyshev() const
    {
@@ -478,10 +479,10 @@ public:
    }
 
    template <class U>
-   BOOST_MATH_GPU_ENABLED typename std::enable_if<std::is_constructible<T, U>::value, polynomial&>::type operator %=(const U& /*value*/)
+   BOOST_MATH_GPU_ENABLED typename std::enable_if<std::is_constructible<T, U>::value, polynomial&>::type operator %=(const U& value)
    {
-       // We can always divide by a scalar, so there is no remainder:
-       this->set_zero();
+       scalar_remainder(value, std::integral_constant<bool, std::numeric_limits<T>::is_integer>());
+       normalize();
        return *this;
    }
 
@@ -539,7 +540,7 @@ public:
    template <typename U>
    BOOST_MATH_GPU_ENABLED polynomial& operator >>=(U const &n)
    {
-       BOOST_MATH_ASSERT(n <= m_data.size());
+       BOOST_MATH_ASSERT(static_cast<size_type>(n) <= m_data.size());
        m_data.erase(m_data.begin(), m_data.begin() + n);
        return *this;
    }
@@ -633,6 +634,21 @@ private:
     {
        std::transform(m_data.begin(), m_data.end(), m_data.begin(), [&](const T& x)->T { return x / value; });
        return *this;
+    }
+
+    template <class U>
+    BOOST_MATH_GPU_ENABLED void scalar_remainder(const U& value, std::true_type)
+    {
+       // Copy in case value aliases one of our coefficients:
+       const U v = value;
+       std::transform(m_data.begin(), m_data.end(), m_data.begin(), [&](const T& x)->T { return static_cast<T>(x % v); });
+    }
+
+    template <class U>
+    BOOST_MATH_GPU_ENABLED void scalar_remainder(const U&, std::false_type)
+    {
+       // Over a field we can always divide by a scalar, so there is no remainder:
+       this->set_zero();
     }
 
     std::vector<T> m_data;
@@ -742,10 +758,10 @@ BOOST_MATH_GPU_ENABLED inline typename std::enable_if<std::is_constructible<T, U
 }
 
 BOOST_MATH_EXPORT template <class T, class U>
-BOOST_MATH_GPU_ENABLED inline typename std::enable_if<std::is_constructible<T, U>::value, polynomial<T> >::type operator % (const polynomial<T>&, const U&)
+BOOST_MATH_GPU_ENABLED inline typename std::enable_if<std::is_constructible<T, U>::value, polynomial<T> >::type operator % (polynomial<T> a, const U& b)
 {
-   // Since we can always divide by a scalar, result is always an empty polynomial:
-   return polynomial<T>();
+   a %= b;
+   return a;
 }
 
 BOOST_MATH_EXPORT template <class U, class T>
@@ -853,8 +869,7 @@ BOOST_MATH_GPU_ENABLED inline std::basic_ostream<charT, traits>& operator << (st
 }
 
 } // namespace tools
-} // namespace math
-} // namespace boost
+BOOST_MATH_NAMESPACE_END
 
 //
 // Polynomial specific overload of gcd algorithm:

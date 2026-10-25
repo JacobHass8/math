@@ -25,7 +25,7 @@
 #include <vector>
 #endif
 
-namespace boost::math::optimization {
+BOOST_MATH_NAMESPACE_BEGIN namespace optimization {
 
 #ifndef BOOST_MATH_DEBUG_JSO
 #define BOOST_MATH_DEBUG_JSO 0
@@ -73,6 +73,9 @@ void validate_jso_parameters(jso_parameters<ArgumentContainer> &jso_params) {
     // but if we followed the reference, the population size would then be zero.
     jso_params.initial_population_size = static_cast<size_t>(
         std::ceil(25 * std::log(dimension + 1.0) * sqrt(dimension)));
+    if (jso_params.initial_population_size < jso_params.threads) {
+      jso_params.initial_population_size = jso_params.threads;
+    }
   }
   if (jso_params.max_function_evaluations == 0) {
     // Recommended value from the reference:
@@ -467,5 +470,5 @@ jso(const Func cost_function, jso_parameters<ArgumentContainer> &jso_params,
   return population[indices[0]];
 }
 
-} // namespace boost::math::optimization
+} BOOST_MATH_NAMESPACE_END // namespace boost::math::optimization
 #endif

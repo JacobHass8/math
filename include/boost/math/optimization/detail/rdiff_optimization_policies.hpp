@@ -11,11 +11,10 @@
 #include <type_traits>
 #endif
 
-namespace boost {
-namespace math {
+BOOST_MATH_NAMESPACE_BEGIN
 namespace optimization {
 
-namespace rdiff = boost::math::differentiation::reverse_mode;
+namespace rdiff = BOOST_MATH_NAMESPACE::differentiation::reverse_mode;
 
 /******************************************************************/
 /**
@@ -78,7 +77,7 @@ template<typename RealType>
 struct tape_initializer_rvar
 {
     template<class ArgumentContainer>
-    void operator()(ArgumentContainer& x) const noexcept
+    void operator()(ArgumentContainer& /*x*/) const noexcept
     {
         static_assert(std::is_same<typename ArgumentContainer::value_type,
                                    rdiff::rvar<RealType, 1>>::value,
@@ -130,7 +129,6 @@ struct costant_initializer_rvar
   }
 };
 } // namespace optimization
-} // namespace math
-} // namespace boost
+BOOST_MATH_NAMESPACE_END
 
 #endif
